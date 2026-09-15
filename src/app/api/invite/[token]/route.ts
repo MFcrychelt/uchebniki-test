@@ -61,7 +61,7 @@ export async function GET(
   res.cookies.set(STUDENT_SESSION_COOKIE, signSessionToken(sessionUser), {
     httpOnly: true,
     sameSite: "lax",
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: sessionTtlSec("STUDENT"),
   });

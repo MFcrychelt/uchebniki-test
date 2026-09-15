@@ -223,9 +223,9 @@ export async function adminGuard(): Promise<
 const COOKIE_BASE = {
   httpOnly: true,
   sameSite: "lax" as const,
-  // Не ставим Secure: приложение живёт во внутренней сети школы,
-  // а локальный npm start работает по HTTP. Токен и так подписан HMAC.
-  secure: false,
+  // Secure показываем только в продакшене: там всегда HTTPS (Render и т.п.),
+  // а локальный `npm start` работает по HTTP — без Secure куки не запишутся.
+  secure: process.env.NODE_ENV === "production",
   path: "/",
 };
 
