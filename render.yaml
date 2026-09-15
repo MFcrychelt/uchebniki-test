@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: uchebniki
+    runtime: node
+    plan: free
+    buildCommand: |
+      npm install --force
+      npx prisma contract emit
+      npm run build
+    startCommand: npx prisma db update && node scripts/seed.js && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: uchebniki-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PASSWORD_ENC_KEY
+        generateValue: true
+
+databases:
+  - name: uchebniki-db
+    plan: free
+    databaseName: uchebniki
+    user: uchebniki_user
