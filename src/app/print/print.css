@@ -1,0 +1,106 @@
+/* Стили для печатных страниц (список класса, этикетки).
+   На экране — аккуратный «бумажный» вид, при печати — чистый A4. */
+
+.print-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem;
+  color: #111;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+.print-page h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.print-page .print-subtitle {
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 1.25rem;
+}
+
+/* Таблица списка */
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid #444;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.print-table th {
+  background: #eee;
+  font-weight: 600;
+}
+
+.print-table .num {
+  width: 2rem;
+  text-align: center;
+}
+
+.print-table .sign {
+  width: 8rem;
+}
+
+/* Этикетки */
+.label-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.book-label {
+  border: 2px solid #111;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  min-height: 5.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  page-break-inside: avoid;
+}
+
+.book-label .label-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.book-label .label-subject {
+  font-size: 0.85rem;
+  color: #333;
+}
+
+.book-label .label-isbn {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  border-top: 1px solid #999;
+  padding-top: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+/* Печать */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  .print-page {
+    padding: 0;
+    max-width: none;
+  }
+  .label-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

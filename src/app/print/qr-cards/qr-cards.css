@@ -1,0 +1,61 @@
+/* Стили карточек с QR-кодами учеников (на печать). */
+
+.qrcard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.qr-card {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  border: 1px dashed #666;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  min-height: 5.2rem;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.qr-card .qr-box {
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 2px;
+  line-height: 0;
+}
+
+.qr-card .qr-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.qr-card .qr-class {
+  font-size: 0.8rem;
+  color: #444;
+}
+
+.qr-card .qr-foot {
+  margin-top: 0.4rem;
+  font-size: 0.65rem;
+  color: #777;
+}
+
+/* Использованная одноразовая ссылка (magic link) — серая, чтобы не раздавать. */
+.qr-card-used {
+  opacity: 0.45;
+}
+
+.qrcard-toolbar-note {
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 1rem;
+}
+
+@media print {
+  .qr-card {
+    border-color: #bbb;
+  }
+}

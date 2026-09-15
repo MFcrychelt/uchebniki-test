@@ -1,0 +1,53 @@
+{
+  "name": "uchebniki-project",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "next lint",
+    "db:start": "node scripts/devdb.js",
+    "db:migrate": "prisma db update && prisma db sign",
+    "seed": "node scripts/seed.js",
+    "test:queue": "node --experimental-strip-types scripts/test-offline-queue.mjs",
+    "test:csv": "node --experimental-strip-types scripts/test-csv.mjs",
+    "test:stocktake": "node --experimental-strip-types scripts/test-stocktake.mjs",
+    "test:update": "node --experimental-strip-types scripts/test-update.mjs",
+    "test": "npm run test:queue && npm run test:csv && npm run test:stocktake && npm run test:update",
+    "contract:emit": "prisma contract emit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
+    "@prisma/orm-postgres": "8.0.0-rc.8",
+    "@serwist/next": "^9.5.12",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "autoprefixer": "^10.6.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^1.45.0",
+    "next": "^16.3.5",
+    "postcss": "^8.5.28",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@embedded-postgres/linux-x64": "^18.4.0-beta.17",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "prisma": "8.0.0-rc.11"
+  }
+}

@@ -1,0 +1,1 @@
+Next.js (App Router) + TypeScript. База данных: PostgreSQL. ORM (Связь с базой): Drizzle ORM или Prisma. Интерфейс и стили: Tailwind CSS + shadcn/ui. PWA и Service Worker: @serwist/next. QR-сканер: html5-qrcode или @yudiel/react-qr-scanner.

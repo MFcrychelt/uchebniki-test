@@ -1,0 +1,206 @@
+// use prisma-8
+// Конфигурация подключения — в prisma.config.ts (блок datasource не используется).
+
+// РОЛИ И СТАТУСЫ
+enum Role {
+  STUDENT
+  LIBRARIAN
+  ADMIN
+}
+
+enum LoanStatus {
+  ISSUED
+  RETURNED
+  LOST
+}
+
+// Заявка ученика на учебник: PENDING → ISSUED (выдана) | DECLINED (отказ)
+enum RequestStatus {
+  PENDING
+  ISSUED
+  DECLINED
+}
+
+// ПОЛЬЗОВАТЕЛИ (Ученики и библиотекари)
+model User {
+  id          String   @id @default(uuid())
+  role        Role     @default(STUDENT)
+  qrToken     String?  @unique @map("qr_token") // Уникальный токен для генерации QR-кода
+  lastName    String   @map("last_name")
+  firstName   String   @map("first_name")
+
+  // Аутентификация. Персонал — логин/пароль библиотекаря; ученики —
+  // автогенерируемые логин/пароль для будущих входов (magic link одноразово
+  // создаёт сессию, дальше вход по логину/паролю — они видны в кабинете).
+  login       String?  @unique @map("login") // Логин для входа (например, "librarian")
+  passwordHash String? @map("password_hash") // scrypt-хеш пароля (соль внутри)
+  passwordEnc  String? @map("password_enc") // Пароль ученика, AES-GCM (для показа в кабинете)
+  // Одноразовая магическая ссылка /invite/<токен>: ученик кликает — и в
+  // браузере ставится сессия. inviteUsedAt — когда ссылка расходуется.
+  inviteToken  String? @unique @map("invite_token")
+  inviteUsedAt DateTime? @map("invite_used_at")
+  
+  // Привязка к классу (только для учеников); при удалении класса
+  // ученики остаются, classId → NULL (явно: без указания Prisma
+  // создал FK NO ACTION и удаление класса с учениками падало с 500)
+  classId     String?  @map("class_id")
+  class       Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
+
+  // Связи для учета выдачи
+  loans       Loan[]   @relation("StudentLoans")
+  issuedByMe  Loan[]   @relation("LibrarianLoans")
+  // Кто отметил компенсацию по утерянным книгам
+  compensationMarked Loan[] @relation("CompensationMarked")
+
+  // Заявки учеников на учебники + заявки, обработанные этим сотрудником
+  requests        BookRequest[] @relation("StudentRequests")
+  handledRequests BookRequest[] @relation("RequestHandledBy")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+// КЛАССЫ
+model Class {
+  id          String   @id @default(uuid())
+  name        String   // Например, "8-А"
+  
+  students    User[]
+  
+  // Привязка списка учебников к классу (формирует ожидаемый чек-лист)
+  books       ClassBook[]
+
+  @@map("classes")
+}
+
+// УЧЕБНИКИ (Каталог номенклатуры)
+model Book {
+  id          String   @id @default(uuid())
+  isbn        String   @unique // Заводской штрихкод для сканирования
+  title       String
+  subject     String   // Предмет (Математика, Физика)
+  copies      Int      @default(1) // Сколько физических экземпляров в фонде
+  // Номер набора сезона (1–11 = « параллель» классов): у каждого числа класса
+  // свой набор учебников на учебный год. NULL — вне наборов (архив прошлых
+  // лет): не выдаётся и не виден в чек-листах, но остаётся в каталоге
+  // и истории. Классу набор назначается одной кнопкой.
+  grade       Int?
+
+  classes     ClassBook[]
+  loans       Loan[]
+  requests    BookRequest[] // Заявки учеников на этот учебник
+  setItems    BookSetItem[] // Членство в именованных наборах
+
+  @@map("books")
+}
+
+// ИМЕНОВАННЫЙ НАБОР УЧЕБНИКОВ
+// Дополнительные группировки для удобства библиотекаря: «Гуманитарные»,
+// «Английские», «Старые учебники»… Книга может входить в несколько
+// наборов одновременно (в отличие от числового набора класса в Book.grade).
+model BookSet {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  items     BookSetItem[]
+
+  @@map("book_sets")
+}
+
+// СВЯЗЬ: Набор <-> Учебник
+model BookSetItem {
+  setId  String @map("set_id")
+  bookId String @map("book_id")
+
+  set  BookSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  book Book    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@id([setId, bookId])
+  @@map("book_set_items")
+}
+
+// ЗАЯВКА УЧЕНИКА НА УЧЕБНИК
+// Ученик из личного кабинета просит книгу; библиотекарь выполняет (выдача)
+// или отказывает. Активных (PENDING) заявок на одну книгу у ученика — не более
+// одной (проверяется в API, уникальность не в БД — чтобы сохранить историю).
+model BookRequest {
+  id          String        @id @default(uuid())
+  studentId   String        @map("student_id")
+  student     User          @relation("StudentRequests", fields: [studentId], references: [id], onDelete: Cascade)
+  bookId      String        @map("book_id")
+  book        Book          @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  status      RequestStatus @default(PENDING)
+  comment     String?       // Комментарий ученика (необязательно)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  handledAt   DateTime?     @map("handled_at") // Когда библиотекарь обработал
+  handledById String?       @map("handled_by_id")
+  handledBy   User?         @relation("RequestHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("book_requests")
+}
+
+// ТАБЛИЦА СВЯЗИ: Класс <-> Учебник
+// Используется для отображения списка в личном кабинете и пустых чек-боксов у библиотекаря
+model ClassBook {
+  classId     String   @map("class_id")
+  bookId      String   @map("book_id")
+  
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  book        Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@id([classId, bookId])
+  @@map("class_books")
+}
+
+// ВЫДАЧА (Транзакции)
+// Фиксирует факт нахождения книги с определенным ISBN у конкретного ученика
+model Loan {
+  id          String     @id @default(uuid())
+  
+  studentId   String     @map("student_id")
+  student     User       @relation("StudentLoans", fields: [studentId], references: [id], onDelete: Cascade)
+  
+  bookId      String     @map("book_id")
+  book        Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  
+  // Аудит: кто из сотрудников произвел выдачу (опционально)
+  librarianId String?    @map("librarian_id")
+  librarian   User?      @relation("LibrarianLoans", fields: [librarianId], references: [id], onDelete: SetNull)
+  
+  status      LoanStatus @default(ISSUED)
+
+  issuedAt    DateTime   @default(now()) @map("issued_at")
+  returnedAt  DateTime?  @map("returned_at") // Время фактического возврата
+  lostAt      DateTime?  @map("lost_at") // Когда пометили утерянной (LOST)
+
+  // Компенсация утери: ученик(и) возместил(и) утраченную книгу —
+  // фонд восстановлен (выдана замена/покупка), долг закрыт.
+  compensatedAt   DateTime? @map("compensated_at")
+  compensatedById String?   @map("compensated_by_id")
+  compensatedBy   User?     @relation("CompensationMarked", fields: [compensatedById], references: [id], onDelete: SetNull)
+
+  @@map("loans")
+}
+
+// АУДИТ-ЖУРНАЛ: кто из персонала что изменил в справочниках.
+// Покрывает то, чего не видно в журнале выдач: CRUD классов/учеников/книг,
+// привязки книг к классам, массовые импорты, входы/выходы.
+// actorName/actorRole денормализованы — журнал сохраняет смысл после
+// удаления сотрудника. details — JSON-строка (имя, ISBN, счётчики…).
+model AuditLog {
+  id        String   @id @default(uuid())
+  ts        DateTime @default(now()) @map("created_at")
+  actorId   String?  @map("actor_id")   // users.id (null — системная запись)
+  actorName String?  @map("actor_name") // «Фамилия Имя»
+  actorRole String?  @map("actor_role") // LIBRARIAN | ADMIN
+  action    String   // class.create, student.delete, import.books, auth.login, …
+  entity    String   // class | student | book | classbook | import | auth
+  entityId  String?  @map("entity_id")  // id объекта (или id класса у привязки)
+  details   String?  // JSON: { name, title, isbn, created, skipped, … }
+
+  @@index([ts])
+  @@map("audit_log")
+}
