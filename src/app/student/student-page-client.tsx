@@ -854,6 +854,9 @@ function StudentPageInner({ initialQr }: { initialQr: string | null }) {
             : undefined
         }
         backLabel={isProfile ? undefined : "Назад"}
+        // Телефон: в шапке только кнопки, фамилия ученика скрыта (для
+        // скринридера остаётся — см. PageHeader).
+        buttonsOnlyOnMobile
         actions={
           isProfile ? (
             <button
