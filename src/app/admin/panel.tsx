@@ -267,6 +267,7 @@ export default function AdminPanel({ userName }: { userName: string }) {
         subtitle="Классы, ученики, каталог и настройки"
         actions={<StaffUser name={userName} />}
         sticky={false}
+        buttonsOnlyOnMobile
       />
 
       {/* Телефон: одна колонка + нижний док. Планшет: лента разделов

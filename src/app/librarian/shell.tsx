@@ -150,6 +150,10 @@ export default function LibrarianShell({ userName }: { userName: string }) {
         subtitle="Сканируйте QR ученика — и отмечайте учебники"
         actions={<StaffUser name={userName} />}
         sticky={false}
+        // На телефоне в шапке остаются только кнопки: разделы подписаны
+        // в нижнем доке, а «Панель библиотекаря» + подсказка съедают
+        // две строки рабочего экрана.
+        buttonsOnlyOnMobile
       />
 
       {/* Телефон: одна колонка + нижний док. Планшет (sm–lg): лента

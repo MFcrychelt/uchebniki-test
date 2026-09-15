@@ -74,6 +74,7 @@ export default function LoginHelpPage() {
         subtitle="Инструкция для библиотекаря и администратора"
         backHref="/login"
         backLabel="Ко входу"
+        buttonsOnlyOnMobile
       />
 
       <div className="safe-x mx-auto max-w-2xl space-y-5 px-4 py-5 sm:py-6">

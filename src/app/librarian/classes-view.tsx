@@ -52,8 +52,14 @@ type DragState = {
   overId: string | null;
 };
 
-const HOLD_MS = 380;
-const MOVE_CANCEL = 14;
+/** Тач: сколько держать палец на чипе, чтобы начался перенос. */
+const HOLD_MS = 320;
+/** Тач: сдвиг пальца до конца удержания — это прокрутка страницы, а не перенос. */
+const TOUCH_CANCEL_PX = 14;
+/** Мышь: перенос начинается сразу, как только курсор сдвинулся (без удержания). */
+const MOUSE_START_PX = 5;
+/** Автопрокрутка списка, когда переносимый чип подвели к краю экрана. */
+const EDGE_SCROLL_PX = 96;
 
 function payloadKey(p: DragPayload) {
   return p.kind === "season" ? `s:${p.grade}` : `n:${p.id}`;
@@ -77,18 +83,26 @@ export default function ClassesView() {
   const [bookQ, setBookQ] = useState("");
   const [picked, setPicked] = useState<DragPayload | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // Жест идёт (палец/курсор на чипе). Пока true — обработчики висят на
+  // window: у самого чипа pointermove/pointerup до конца жеста не
+  // доживают — курсор мыши уходит за пределы кнопки, а тач-панель
+  // перехватывает движение под прокрутку.
+  const [gesture, setGesture] = useState(false);
+  // Единственный источник правды для window-обработчиков: setDrag доезжает
+  // до рендера позже, а pointerup нужно обработать «здесь и сейчас».
   const dragRef = useRef<DragState | null>(null);
-  dragRef.current = drag;
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // pointerId/target в снимке точки старта не нужны: перетаскивание считаем
-  // по clientX/clientY + elementFromPoint (см. onChipMove), а не по
-  // setPointerCapture — на тач-устройствах capture мешал «отпусканию».
   const startPt = useRef<{
     x: number;
     y: number;
     payload: DragPayload;
+    touch: boolean;
   } | null>(null);
-  const skipClick = useRef(false);
+  /** Чей это жест: второй палец на экране перенос не касается. */
+  const activePointer = useRef<number | null>(null);
+  // Клик после переноса гасим по времени, а не флагом: отменённый жест
+  // (Escape, pointercancel) не должен «съедать» следующий тап по чипу.
+  const skipClickUntil = useRef(0);
 
   const load = useCallback(async () => {
     const [c, s, b] = await Promise.all([
@@ -217,74 +231,192 @@ export default function ClassesView() {
     });
   };
 
-  const classIdFromPoint = (x: number, y: number) => {
+  const classIdFromPoint = useCallback((x: number, y: number) => {
     const el = document.elementFromPoint(x, y);
     return (
       el?.closest("[data-class-drop]")?.getAttribute("data-class-drop") ?? null
     );
-  };
+  }, []);
 
-  const clearHold = () => {
+  const setDragState = useCallback((next: DragState | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
+
+  const endGesture = useCallback(() => {
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = null;
     startPt.current = null;
-  };
+    activePointer.current = null;
+    setDragState(null);
+    setGesture(false);
+  }, [setDragState]);
 
-  const beginHold = (payload: DragPayload, e: React.PointerEvent) => {
-    if (e.button === 2) return;
-    startPt.current = { x: e.clientX, y: e.clientY, payload };
-    holdTimer.current = setTimeout(() => {
+  const startDrag = useCallback(
+    (x: number, y: number) => {
       const st = startPt.current;
-      if (!st) return;
-      skipClick.current = true;
+      if (!st || dragRef.current) return;
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+      skipClickUntil.current = Date.now() + 500;
       setPicked(null);
-      setDrag({
+      setDragState({
         payload: st.payload,
-        x: st.x,
-        y: st.y,
-        overId: null,
+        x,
+        y,
+        overId: classIdFromPoint(x, y),
       });
       try {
         navigator.vibrate?.(20);
       } catch {
         // нет вибрации
       }
-    }, HOLD_MS);
+    },
+    [classIdFromPoint, setDragState]
+  );
+
+  // dropOnClass пересоздаётся каждый рендер (внутри — classes/sets/busy),
+  // а подписка на window живёт дольше одного рендера: берём свежую версию
+  // через ref, а не замыкаем её в обработчике.
+  const dropRef = useRef(dropOnClass);
+  dropRef.current = dropOnClass;
+
+  /**
+   * Один обработчик на всё окно. Раньше pointermove/pointerup висели на
+   * самом чипе, и перенос ломался двумя способами:
+   *  - мышь: курсор уходил за пределы кнопки — события до чипа не
+   *    доходили, «призрак» застывал, а классы переставали открываться;
+   *  - тач: страница уезжала под пальцем, браузер присылал pointercancel,
+   *    удерживание снималось, но состояние переноса оставалось висеть.
+   */
+  const onChipDown = (payload: DragPayload, e: React.PointerEvent) => {
+    if (e.button === 2 || e.ctrlKey || e.metaKey) return; // контекстное меню
+    if (activePointer.current !== null) return; // второй палец — не наш жест
+    activePointer.current = e.pointerId;
+    const touch = e.pointerType === "touch";
+    startPt.current = { x: e.clientX, y: e.clientY, payload, touch };
+    setGesture(true);
+    if (touch) {
+      // Тач: сначала удержание (иначе любой свайп по ленте наборов
+      // читался бы как перенос). Мышь: старт по движению, см. onMove.
+      holdTimer.current = setTimeout(
+        () => startDrag(e.clientX, e.clientY),
+        HOLD_MS
+      );
+    }
   };
 
-  const onChipMove = (e: React.PointerEvent) => {
-    const st = startPt.current;
-    if (st && holdTimer.current) {
+  useEffect(() => {
+    if (!gesture) return;
+
+    const onMove = (e: PointerEvent) => {
+      if (activePointer.current === null) return;
+      if (e.pointerId !== activePointer.current) return;
+      const st = startPt.current;
+      if (!st) return;
       const dx = e.clientX - st.x;
       const dy = e.clientY - st.y;
-      if (dx * dx + dy * dy > MOVE_CANCEL * MOVE_CANCEL) clearHold();
-    }
-    if (!dragRef.current) return;
-    e.preventDefault();
-    const overId = classIdFromPoint(e.clientX, e.clientY);
-    setDrag({
-      payload: dragRef.current.payload,
-      x: e.clientX,
-      y: e.clientY,
-      overId,
-    });
-  };
+      const moved2 = dx * dx + dy * dy;
+      const cur = dragRef.current;
 
-  const onChipUp = (e: React.PointerEvent) => {
-    clearHold();
-    const cur = dragRef.current;
-    if (!cur) return;
-    skipClick.current = true;
-    const overId = classIdFromPoint(e.clientX, e.clientY) ?? cur.overId;
-    setDrag(null);
-    if (overId) dropOnClass(overId, cur.payload);
-  };
+      if (!cur) {
+        // Перенос ещё не начался: решаем, что это — перенос или прокрутка.
+        if (st.touch) {
+          if (moved2 > TOUCH_CANCEL_PX * TOUCH_CANCEL_PX) endGesture();
+        } else if (moved2 > MOUSE_START_PX * MOUSE_START_PX) {
+          startDrag(e.clientX, e.clientY);
+        }
+        return;
+      }
+
+      // Подписка passive:false + preventDefault: иначе страница
+      // прокручивается под пальцем и жест обрывается.
+      e.preventDefault();
+      const overId = classIdFromPoint(e.clientX, e.clientY);
+      if (overId !== cur.overId || e.clientX !== cur.x || e.clientY !== cur.y) {
+        setDragState({
+          payload: cur.payload,
+          x: e.clientX,
+          y: e.clientY,
+          overId,
+        });
+      }
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (activePointer.current === null) return;
+      if (e.pointerId !== activePointer.current) return;
+      const cur = dragRef.current;
+      const overId = cur
+        ? classIdFromPoint(e.clientX, e.clientY) ?? cur.overId
+        : null;
+      endGesture();
+      if (cur && overId) dropRef.current(overId, cur.payload);
+    };
+
+    const onCancel = (e: PointerEvent) => {
+      if (e.pointerId !== activePointer.current) return;
+      skipClickUntil.current = 0;
+      endGesture();
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") endGesture();
+    };
+
+    // Окно потеряло фокус (свернули PWA, ушли в другое приложение) —
+    // «призрак» переноса не должен остаться висеть на экране.
+    const onBlur = () => endGesture();
+
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [gesture, startDrag, endGesture, classIdFromPoint, setDragState]);
+
+  // У края экрана список сам докручивается до нужного класса: во время
+  // переноса палец/курсор заняты, а до классов ниже сгиба не дотянуться.
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    let raf = 0;
+    const step = () => {
+      const d = dragRef.current;
+      if (d) {
+        const bottom = window.innerHeight - EDGE_SCROLL_PX;
+        let dy = 0;
+        if (d.y < EDGE_SCROLL_PX) dy = -Math.ceil((EDGE_SCROLL_PX - d.y) / 6);
+        else if (d.y > bottom) dy = Math.ceil((d.y - bottom) / 6);
+        if (dy !== 0) {
+          window.scrollBy(0, dy);
+          const overId = classIdFromPoint(d.x, d.y);
+          if (overId !== d.overId) setDragState({ ...d, overId });
+        }
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [dragging, classIdFromPoint, setDragState]);
+
+  useEffect(
+    () => () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    },
+    []
+  );
 
   const tapChip = (payload: DragPayload) => {
-    if (skipClick.current) {
-      skipClick.current = false;
-      return;
-    }
+    // Клик сразу после переноса — не «выбрать набор», а хвост жеста.
+    if (Date.now() < skipClickUntil.current) return;
     setPicked((p) =>
       p && payloadKey(p) === payloadKey(payload) ? null : payload
     );
@@ -408,11 +540,26 @@ export default function ClassesView() {
 
   const chipClass = (payload: DragPayload) =>
     cn(
-      "inline-flex h-11 max-w-full select-none items-center gap-1 rounded-md border px-2.5 text-sm font-medium",
+      // drag-chip (globals.css): touch-action:none — без него браузер
+      // забирает жест под прокрутку страницы и рвёт перенос pointercancel'ом.
+      "drag-chip inline-flex h-11 max-w-full select-none items-center gap-1 rounded-md border px-2.5 text-sm font-medium",
       picked && payloadKey(picked) === payloadKey(payload)
         ? "border-primary bg-primary text-primary-foreground"
-        : "border-border bg-card active:bg-primary/10"
+        : "border-border bg-card active:bg-primary/10",
+      drag && payloadKey(drag.payload) === payloadKey(payload) && "opacity-40"
     );
+
+  /** Общие свойства чипа: удержание/перенос, отмена контекстного меню
+   *  (на Android долгое нажатие иначе показывает системное меню) и тап —
+   *  «выбрать набор» для тех, кто не хочет тянуть. */
+  const chipProps = (payload: DragPayload) => ({
+    onPointerDown: (e: React.PointerEvent) => onChipDown(payload, e),
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onClick: () => tapChip(payload),
+    "aria-pressed":
+      picked == null ? undefined : payloadKey(picked) === payloadKey(payload),
+    className: chipClass(payload),
+  });
 
   if (cls) {
     const n = classNumber(cls.name);
@@ -590,8 +737,8 @@ export default function ClassesView() {
         <CardHeader className="py-3">
           <CardTitle className="text-base">Выберите класс</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            На телефоне: нажмите набор, затем класс. Либо удерживайте набор
-            0,4 сек и перетащите.
+            Нажмите набор, затем класс — либо удержите набор 0,3 сек и
+            перетащите его на нужный класс.
           </p>
           <Input
             value={classQ}
@@ -641,12 +788,7 @@ export default function ClassesView() {
                   <button
                     key={`g-${g}`}
                     type="button"
-                    onPointerDown={(e) => beginHold(payload, e)}
-                    onPointerMove={onChipMove}
-                    onPointerUp={onChipUp}
-                    onPointerCancel={clearHold}
-                    onClick={() => tapChip(payload)}
-                    className={chipClass(payload)}
+                    {...chipProps(payload)}
                   >
                     <GripVertical className="h-4 w-4 opacity-70" />
                     {g} кл.
@@ -660,16 +802,7 @@ export default function ClassesView() {
                   name: s.name,
                 };
                 return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onPointerDown={(e) => beginHold(payload, e)}
-                    onPointerMove={onChipMove}
-                    onPointerUp={onChipUp}
-                    onPointerCancel={clearHold}
-                    onClick={() => tapChip(payload)}
-                    className={chipClass(payload)}
-                  >
+                  <button key={s.id} type="button" {...chipProps(payload)}>
                     <GripVertical className="h-4 w-4 shrink-0 opacity-70" />
                     <span className="truncate">{s.name}</span>
                     <span className="text-xs opacity-80">{s.books.length}</span>
@@ -707,7 +840,9 @@ export default function ClassesView() {
                   onClick={() => onClassClick(c.id)}
                   className={cn(
                     "flex h-24 w-full flex-col items-start justify-center rounded-lg border bg-card px-3 text-left transition-colors",
-                    drag?.overId === c.id || picked
+                    // Во время переноса/выбора подсвечиваем ВСЕ классы —
+                    // видно, куда можно бросить набор.
+                    drag != null || picked != null
                       ? "border-primary bg-primary/10"
                       : "border-border hover:border-primary hover:bg-muted/60",
                     drag?.overId === c.id && "ring-2 ring-primary"
@@ -727,8 +862,12 @@ export default function ClassesView() {
       {drag && (
         <div
           aria-hidden
-          className="pointer-events-none fixed z-50 rounded-md border border-primary bg-card px-3 py-2 text-sm font-medium shadow-lg"
-          style={{ left: drag.x + 12, top: drag.y + 12 }}
+          className="pointer-events-none fixed z-50 max-w-64 truncate rounded-md border border-primary bg-card px-3 py-2 text-sm font-medium shadow-lg"
+          style={{
+            // Тянем «призрак» на transform: left/top пересчитывают
+            // раскладку каждый кадр — на слабом телефоне перенос дёргался.
+            transform: `translate3d(${drag.x + 12}px, ${drag.y + 12}px, 0)`,
+          }}
         >
           {payloadLabel(drag.payload)}
         </div>

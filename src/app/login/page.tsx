@@ -12,6 +12,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { LogoMark } from "@/components/ui/logo-mark";
 import { ThemeToggle } from "@/components/theme";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { useDesktopAutoFocus } from "@/lib/use-desktop-autofocus";
 
 /**
  * Вход персонала. Экран рассчитан на аудиторию: библиотекарь за старым
@@ -29,7 +30,10 @@ import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
  *    sans-serif, без «плакатной» плотности: экран должен читаться как
  *    рабочий инструмент, а не как лендинг;
  *  - labels связаны с полями (htmlFor/id), ошибка — role="alert",
- *    enterKeyHint="go" + autoFocus: клавиатура и «Войти» на энтере сразу.
+ *    enterKeyHint — «Далее»/«Перейти» на клавиатуре;
+ *  - автофокус в логин — ТОЛЬКО на устройствах с клавиатурой (см.
+ *    useDesktopAutoFocus): на телефоне и в PWA клавиатура, открытая сама,
+ *    пересобирала viewport и экран мигал по кругу.
  */
 function LoginForm() {
   const router = useRouter();
@@ -40,6 +44,10 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
+  // Фокус в логин ставим только там, где есть физическая клавиатура:
+  // на телефоне/в PWA автофокус открывал клавиатуру сам, viewport
+  // пересобирался под неё, и экран входил в бесконечное мигание.
+  const loginRef = useDesktopAutoFocus<HTMLInputElement>();
 
   // Caps Lock определяем по событию клавиатуры (getModifierState): статус
   // поля нужен ДО попытки входа, а не после красной ошибки.
@@ -135,6 +143,7 @@ function LoginForm() {
               Логин
             </label>
             <Input
+              ref={loginRef}
               id="login"
               name="username"
               size="lg"
@@ -149,7 +158,6 @@ function LoginForm() {
               // заглавной и «подправляет» слово — логин ломается.
               className="panel-field border-panel-line bg-white/12 text-panel-foreground shadow-none placeholder:text-panel-muted focus-visible:ring-2 focus-visible:ring-panel-foreground/50"
               placeholder="library"
-              autoFocus
               {...modKeys}
             />
             <label htmlFor="password" className="block pt-3 text-[13px] font-semibold tracking-normal text-panel-muted">

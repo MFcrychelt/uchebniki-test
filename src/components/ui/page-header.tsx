@@ -19,6 +19,11 @@ interface PageHeaderProps {
   /** Липкая шапка (по умолчанию). На телефонах с длинным списком
    *  липкой лучше оставить навигацию — тогда шапка уходит при скролле. */
   sticky?: boolean;
+  /** На телефоне — только кнопки: заголовок и подпись скрыты (до `sm`).
+   *  В панелях персонала разделы и так подписаны в доке, а две строки
+   *  текста в шапке на узком экране съедают место у рабочего стола.
+   *  Заголовок не удаляется из DOM (sr-only) — скринридер его читает. */
+  buttonsOnlyOnMobile?: boolean;
   className?: string;
 }
 
@@ -47,6 +52,7 @@ export function PageHeader({
   backHref = "/",
   withGear = true,
   sticky = true,
+  buttonsOnlyOnMobile = false,
   className,
 }: PageHeaderProps) {
   return (
@@ -64,7 +70,15 @@ export function PageHeader({
               <Icon className="h-5 w-5" />
             </div>
           )}
-          <div className="min-w-0">
+          <div
+            className={cn(
+              "min-w-0",
+              // max-sm:sr-only — визуально скрыто на телефоне, но остаётся
+              // в дереве доступности: заголовок экрана не должен пропадать
+              // у скринридера вместе с надписью.
+              buttonsOnlyOnMobile && "max-sm:sr-only"
+            )}
+          >
             <h1 className="truncate text-[17px] font-semibold leading-tight">
               {title}
             </h1>
