@@ -13,6 +13,11 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // Relative imports with an explicit ".ts" are what lets scripts/test-*.mjs
+    // (plain node --experimental-strip-types) share code with the app: node
+    // resolves only exact specifiers, while "@/" aliases and extensionless
+    // imports resolve only through Next/TSC. noEmit makes this legal.
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",

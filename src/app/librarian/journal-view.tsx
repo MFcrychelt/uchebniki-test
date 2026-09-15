@@ -180,7 +180,7 @@ export default function JournalView() {
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            className="h-11 rounded-lg border border-input bg-card px-2 text-base"
           >
             <option value="">Все статусы</option>
             <option value="ISSUED">Выданы</option>
@@ -190,7 +190,7 @@ export default function JournalView() {
           <select
             value={classId}
             onChange={(e) => setClassId(e.target.value)}
-            className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            className="h-11 rounded-lg border border-input bg-card px-2 text-base"
           >
             <option value="">Все классы</option>
             {classes.map((c) => (
@@ -207,7 +207,7 @@ export default function JournalView() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-2 text-base"
               aria-label="С даты"
             />
             <span className="text-xs text-muted-foreground">—</span>
@@ -215,7 +215,7 @@ export default function JournalView() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-2 text-base"
               aria-label="По дату"
             />
           </div>
@@ -232,7 +232,7 @@ export default function JournalView() {
             href={lossActHref}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-input bg-card px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-input bg-card px-2.5 text-base font-medium text-foreground transition-colors hover:bg-accent"
           >
             <Printer className="h-3.5 w-3.5" /> Акт списания
           </a>

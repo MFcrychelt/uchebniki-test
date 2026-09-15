@@ -31,11 +31,23 @@ export function sessionTtlSec(role: SessionUser["role"]): number {
   return role === "STUDENT" ? STUDENT_SESSION_TTL_SEC : SESSION_TTL_SEC;
 }
 
+const DEV_FALLBACK_SECRET = "dev-only-insecure-session-secret-0123456789abcdef";
+
 function secret(): string {
-  const s = process.env.SESSION_SECRET;
-  if (s && s.length >= 32) return s;
-  // Dev-fallback: чтобы не ронять локальный старт. В прод — обязательно SECRET.
-  return "dev-only-insecure-session-secret-0123456789abcdef";
+  const raw = process.env.SESSION_SECRET ?? "";
+  // Заглушка из .env.example и всё, что короче 32 символов, — не секрет:
+  // подпись cookie воспроизводится по публичному репозиторию, а это
+  // поддельная сессия ADMIN с любым uid. В проде на такое не соглашаемся;
+  // в dev остаётся тихий fallback, чтобы локальный старт не падал.
+  const insecure = raw.length < 32 || raw.startsWith("change-me-to-a-long");
+  if (!insecure) return raw;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET: подставьте случайный секрет от 32 символов — " +
+        'node -e "console.log(require(\"crypto\").randomBytes(32).toString(\"hex\"))"'
+    );
+  }
+  return DEV_FALLBACK_SECRET;
 }
 
 // --- Пароли (scrypt, соль в хеше) ---

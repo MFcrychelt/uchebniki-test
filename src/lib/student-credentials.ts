@@ -1,9 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes,
-} from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { hashPassword } from "@/lib/auth";
 import { db } from "@/lib/prisma";
 
@@ -62,40 +57,16 @@ export function generateStudentPassword(): string {
   return randChars(8);
 }
 
-// --- Хранение пароля: AES-256-GCM (ключ от SESSION_SECRET) ---
+// --- Хранение пароля: AES-256-GCM ---------------------------------------
+//
+// Реализация — в src/lib/password-crypto.ts (тестируется чистым node без
+// алиасов). Здесь только реэкспорт: callers (`/api/student/me/credentials`)
+// привыкли импортировать парольные утилиты отсюда, и ломать это ради
+// переезда файлов незачем.
 
-function pwKey(): Buffer {
-  const s =
-    process.env.SESSION_SECRET ??
-    "dev-only-insecure-session-secret-0123456789abcdef";
-  return createHash("sha256").update(`${s}:student-password`).digest();
-}
+import { decryptPassword, encryptPassword } from "@/lib/password-crypto";
 
-/** Формат: ivBase64.tagBase64.cipherBase64 */
-export function encryptPassword(plain: string): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", pwKey(), iv);
-  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  return `${iv.toString("base64")}.${cipher.getAuthTag().toString("base64")}.${enc.toString("base64")}`;
-}
-
-export function decryptPassword(stored: string): string | null {
-  try {
-    const [ivB64, tagB64, dataB64] = stored.split(".");
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      pwKey(),
-      Buffer.from(ivB64, "base64")
-    );
-    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(dataB64, "base64")),
-      decipher.final(),
-    ]).toString("utf8");
-  } catch {
-    return null;
-  }
-}
+export { decryptPassword, encryptPassword };
 
 // --- Создание/дополнение креденшелов ---
 

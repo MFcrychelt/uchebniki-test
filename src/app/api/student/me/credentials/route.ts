@@ -23,7 +23,10 @@ export async function GET() {
   const password = decryptPassword(full.passwordEnc);
   if (!password) {
     return NextResponse.json(
-      { error: "Не удалось восстановить пароль" },
+      {
+        error:
+          "Не удалось показать пароль (ключ шифрования в настройках сервера изменился). Попросите администратора назначить новый пароль — в разделе «Ссылки».",
+      },
       { status: 500 }
     );
   }

@@ -2,61 +2,131 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ==========================================================================
+   Дизайн-токены: «холст и чернила» (референс — fermi.gg)
+   --------------------------------------------------------------------------
+   fermi.gg держит три приёма, которые мы и переносим:
+     1) один сплошной фон на весь экран вместо «форма на белом»: светлый
+        нейтральный холст + белые карточки (разница ~2% яркости, поэтому
+        границы нужны); жёлтый «бумажный» подтон убран — он спорил с
+        синим акцентом и на дешёвых IPS-матрицах уходил в грязь;
+     2) одна насыщенная панель (hero) с крупным белым текстом — весь смысл
+        экрана в одном блоке, кнопки и подписи — внутри неё;
+     3) микро-надписи CAPS с разрядкой + табличные цифры для кодов/счётчиков.
+   Всё это — сплошные цвета и рамки: без blur, градиентных анимаций и
+   теней на каждом элементе, поэтому дёшево рендерится на слабых телефонах.
+   ========================================================================== */
+
 :root {
   /* Нативные скроллбары/инпуты — под светлую тему */
   color-scheme: light;
-  --background: oklch(0.985 0.002 247.839);
-  --foreground: oklch(0.205 0.014 265.7);
+
+  /* Холст и текст: светлый нейтральный (едва уловимый холодный подтон) +
+     почти чёрный «чернильный» текст. Карточка белая: фон и карточка
+     разведены яркостью, а не оттенком, поэтому граница всё ещё нужна. */
+  --background: oklch(0.978 0.003 260);
+  --foreground: oklch(0.25 0.012 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.205 0.014 265.7);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.205 0.014 265.7);
-  --primary: oklch(0.546 0.245 262.881);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.95 0.01 255);
-  --secondary-foreground: oklch(0.269 0.031 256.8);
-  --muted: oklch(0.95 0.01 255);
-  --muted-foreground: oklch(0.554 0.025 264.364);
-  --accent: oklch(0.932 0.034 255);
-  --accent-foreground: oklch(0.372 0.034 255);
-  --destructive: oklch(0.577 0.245 27.325);
+  --card-foreground: oklch(0.25 0.012 260);
+  --popover: oklch(0.996 0.002 260);
+  --popover-foreground: oklch(0.25 0.012 260);
+
+  /* Основной акцент — «указатель» (синий чернильный): ссылки, выделение,
+     фокус-кольца. Статусы (зелёный/янтарный/красный) с ним не спорят. */
+  --primary: oklch(0.52 0.2 262);
+  --primary-foreground: oklch(0.985 0.004 260);
+
+  /* Насыщенная панель (fermi-style hero) — приглушённый «петроль» #1e3a46:
+     спокойнее синего, лучше читается как «рабочий инструмент», и не спорит
+     с акцентом (акцент остался синим — на петроле он светлый).
+     Внутри панели фон полей — белый с прозрачностью, а не новый цвет. */
+  --panel: oklch(0.33 0.04 228);
+  --panel-foreground: oklch(0.98 0.004 225);
+  /* Приглушённый текст НА панели: 0.84 читался серым на «петроле» и
+     терялся на старом TN-мониторе — держим его заметно светлее, это тот
+     же цвет, что и основной текст, только чуть холоднее и мягче. */
+  --panel-muted: oklch(0.905 0.02 228);
+  --panel-line: oklch(0.98 0.006 225 / 0.22);
+
+  --secondary: oklch(0.945 0.004 260);
+  --secondary-foreground: oklch(0.32 0.012 260);
+  --muted: oklch(0.945 0.004 260);
+  --muted-foreground: oklch(0.52 0.012 260);
+  --accent: oklch(0.92 0.008 260);
+  --accent-foreground: oklch(0.3 0.015 260);
+  --destructive: oklch(0.56 0.21 26);
   --destructive-foreground: oklch(0.985 0 0);
-  --success: oklch(0.596 0.145 163.225);
+  --success: oklch(0.56 0.14 158);
   --success-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.769 0.188 70.08);
-  --warning-foreground: oklch(0.286 0.066 53.813);
-  --border: oklch(0.922 0.013 255.508);
-  --input: oklch(0.922 0.013 255.508);
-  --ring: oklch(0.546 0.245 262.881);
-  --radius: 0.625rem;
+  --warning: oklch(0.75 0.16 72);
+  --warning-foreground: oklch(0.32 0.05 72);
+
+  /* Нейтральные серые линии: 1px border дешевле любой тени. */
+  --border: oklch(0.885 0.005 260);
+  --input: oklch(0.84 0.006 260);
+  --ring: oklch(0.52 0.2 262);
+
+  /* Радиусы: панель крупнее карточки, карточка крупнее поля —
+     читается как иерархия, а не как «всё округлое». */
+  --radius: 1rem;
+  --radius-panel: 1.5rem;
+
+  /* Две тени на весь интерфейс (панели и карточки). Строки списков —
+     только рамки: box-shadow в длинном списке = заметная перерисовка. */
+  --shadow-card: 0 1px 2px oklch(0.3 0.01 260 / 0.07);
+  --shadow-panel: 0 20px 44px -24px oklch(0.28 0.02 262 / 0.34);
 }
 
 .dark {
-  /* Нативные скроллбары/инпуты — под тёмную тему */
+  /* Ночная тема — почти чёрный холодный графит, а не тёплая «доска»:
+     фон ровно rgb(3 8 10), карточки и блоки — rgb(8 13 15). Разница между
+     ними — 1.7% яркости, поэтому рамка здесь не декорация, а единственный
+     способ отделить блок от фона: border/input держим заметнее, чем в
+     светлой теме. Тёплый подтон (hue 70) убран: на OLED над почти-чёрным
+     он уходил в грязь, а синий акцент с ним спорил. */
   color-scheme: dark;
-  --background: oklch(0.145 0.014 265.7);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0.014 265.7);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0.014 265.7);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0.031 256.8);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0.031 256.8);
-  --muted-foreground: oklch(0.705 0.021 256.8);
-  --accent: oklch(0.269 0.031 256.8);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --success: oklch(0.696 0.17 162.48);
-  --success-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.795 0.184 86.047);
-  --warning-foreground: oklch(0.244 0.065 49.153);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 18%);
-  --ring: oklch(0.623 0.214 259.815);
+  --background: rgb(3 8 10);
+  --foreground: oklch(0.965 0.005 229); /* #f0f4f6 — 17.7:1 на карточке */
+  --card: rgb(8 13 15);
+  --card-foreground: oklch(0.965 0.005 229);
+  /* Всплывающие списки — на полшага выше карточки: на этом фоне тень не
+     читается, слои различает только яркость. */
+  --popover: rgb(11 17 20);
+  --popover-foreground: oklch(0.965 0.005 229);
+
+  /* Акцент не трогаем: 6.2:1 как текст на карточке — с запасом. */
+  --primary: oklch(0.66 0.17 260);
+  --primary-foreground: oklch(0.18 0.02 265);
+
+  /* Панель над почти-чёрным холстом приподнята тем же петролём, что и в
+     светлой теме, но чуть светлее: иначе блок сливался бы с карточкой. */
+  --panel: oklch(0.32 0.042 228);
+  --panel-foreground: oklch(0.97 0.006 225);
+  --panel-muted: oklch(0.88 0.02 228);
+  --panel-line: oklch(0.97 0.01 225 / 0.2);
+
+  --secondary: oklch(0.24 0.014 228);
+  --secondary-foreground: oklch(0.95 0.006 229);
+  --muted: oklch(0.24 0.014 228);
+  --muted-foreground: oklch(0.75 0.022 230); /* 8.8:1 — второстепенное читается */
+  --accent: oklch(0.28 0.018 228);
+  --accent-foreground: oklch(0.97 0.006 229);
+  --destructive: oklch(0.68 0.18 25);
+  --destructive-foreground: oklch(0.16 0.03 25);
+  --success: oklch(0.74 0.15 158);
+  --success-foreground: oklch(0.16 0.03 158);
+  --warning: oklch(0.8 0.14 78);
+  --warning-foreground: oklch(0.22 0.04 78);
+
+  /* Линии — белый с прозрачностью (тот же приём, что поля внутри панели):
+     на rgb(8 13 15) это 44 48 50 — видно, но не «бело». */
+  --border: rgb(233 240 245 / 0.16);
+  --input: rgb(233 240 245 / 0.26);
+  --ring: oklch(0.72 0.15 260);
+  /* Тени на почти-чёрном невидимы (чёрное на чёрном) — убираем совсем:
+     минус перерисовка слоёв, иерархию держат рамка и радиус. */
+  --shadow-card: none;
+  --shadow-panel: none;
 }
 
 @theme inline {
@@ -68,6 +138,10 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-muted: var(--panel-muted);
+  --color-panel-line: var(--panel-line);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -83,65 +157,320 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --radius-xl: var(--radius-panel);
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-sm: calc(var(--radius) - 8px);
+  --shadow-card: var(--shadow-card);
+  --shadow-panel: var(--shadow-panel);
+
+  /* Типографика: системный стек (ни одного веб-шрифта — минус 60-120 КБ
+     и минус блокирующая загрузка на 3G), плотный трекинг в заголовках. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  /* Было -0.025em (фермиевская «плотность»). Для рабочего инструмента
+     оставляем лишь лёгкое сжатие: заголовки перестают выглядеть плакатом. */
+  --tracking-tight2: -0.011em;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+@layer base {
+  html {
+    /* iOS Safari при фокусе поля с шрифтом < 16px зумит страницу, а затем
+       «забывает» отзумить: форма уезжает и остаётся кривой. Запрет
+       пользовательского зума по умолчанию + 16px в полях ниже. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Резинка поверх скролла внутри приложения не нужна: на Android
+       она ещё и конфликтует с pull-to-refresh. */
+    overscroll-behavior-y: contain;
+  }
+
+  body {
+    color: var(--foreground);
+    background: var(--background);
+    font-family: var(--font-sans);
+    /* Мобильный «отклик»: жёлтый прямоугольник тапа поверх кнопок в
+       fermi-style дизайне только мешает (там отклик — active-состояние). */
+    -webkit-tap-highlight-color: transparent;
+    /* 1) не даём тексту «прыгать» при смене темы/повороте;
+       2) antialiased на iOS заметно легче, чем subpixel-сглаживание. */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Крупные заголовки: лёгкое сжатие вместо «плакатной» плотности + вес 600
+     вместо 800 — системный sans-serif без веб-шрифтов остаётся, меняется
+     только начертание. text-wrap: balance — чтобы строки не рвались. */
+  h1,
+  h2 {
+    letter-spacing: var(--tracking-tight2);
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  /* Автозаполнение на iOS/Chrome закрашивает поле жёлтым или белым —
+     на тёмной теме текст становился невидимым. Инсет-тень перекрывает
+     это, не трогая скругления. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--foreground);
+    caret-color: var(--foreground);
+    -webkit-box-shadow: 0 0 0 1000px var(--card) inset;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+
+  /* Нативный <select> на iOS и Android рисуется по-разному;
+    appearance:none + своя стрелка не нужны — оставляем системный вид
+     (он и есть «родной» для пожилого сотрудника), но фиксируем высоту,
+     чтобы поле не скакало между платформами. */
+  select {
+    min-height: 2.75rem;
+  }
 }
 
-/* --- Анимация иконки на страницах входа --- */
-/* Лёгкое покачивание: живая, но не отвлекает. motion-reduce — выкл. */
-@keyframes icon-sway {
-  0%, 100% { transform: rotate(-7deg); }
-  50% { transform: rotate(7deg); }
+@layer components {
+  /* --- Панель в духе fermi.gg: одна насыщенная поверхность на экран --- */
+  .panel {
+    background: var(--panel);
+    color: var(--panel-foreground);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-panel);
+  }
+  /* Поле/плашка внутри панели: не новый цвет, а белый с прозрачностью —
+     таких состояний должно быть бесплатно много. */
+  .panel-field {
+    background: color-mix(in oklab, var(--panel-foreground) 12%, transparent);
+    border: 1px solid var(--panel-line);
+    border-radius: var(--radius);
+  }
+  .panel-muted {
+    color: var(--panel-muted);
+  }
+
+  /* --- Микро-надпись CAPS с разрядкой («LOCK IT IN ↵») --- */
+  /* Микро-подпись раздела. 12px/600 вместо 11px/700: разрядка стала мягче,
+     а размер — пригодным для чтения в очках. */
+  .eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* --- Табличные цифры: ISBN, счётчики, даты не «пляшут» --- */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+
+  /* Галочка внутри чекбокса: сплошной цвет без символа читается как
+     «поле активно», а не «отмечено» — для пожилых сотрудников это
+     разные состояния. data-URI ничего не качает и не стоит узлов DOM. */
+  .checkbox-tick:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 12.5l5 5L19.5 6.5'/%3E%3C/svg%3E");
+    background-size: 82% 82%;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  /* Отмеченная строка чек-листа — лёгкая подкраска вместо «всё зелёное»:
+     один background-color на строку, без теней и рамок-обводок. */
+  .row-done {
+    background: color-mix(in oklab, var(--success) 10%, transparent);
+  }
 }
-.animate-icon-sway {
-  animation: icon-sway 3.2s ease-in-out infinite;
+
+@layer utilities {
+  /* ============================ МОБИЛЬНЫЕ ЗОНЫ ============================
+     env(safe-area-inset-*) — «челки» iPhone, полоска жестов Android,
+     клавиатура. viewport-fit=cover выставлен в layout.tsx, поэтому без
+     этих паддингов шапка и нижняя кнопка уходят под вырез. */
+  .safe-t {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+  .safe-b {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .safe-x {
+    padding-inline: max(1rem, env(safe-area-inset-left))
+      max(1rem, env(safe-area-inset-right));
+  }
+  /* Нижняя «прилипающая» кнопка основного действия + отступ под неё.
+     sticky, а не fixed: при появлении клавиатуры на iOS fixed-панель
+     остаётся под клавиатурой, sticky — ведёт себя предсказуемо. */
+  .dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    margin-inline: -1rem;
+    padding: 0.625rem 1rem
+      max(0.625rem, calc(0.625rem + env(safe-area-inset-bottom)));
+    /* Сплошной фон + hairline: linear-gradient под sticky-панелью на
+       слабом Android перерисовывается каждый кадр скролла. */
+    background: var(--background);
+    border-top: 1px solid var(--border);
+  }
+
+  /* ====================== СКОРОСТЬ НА СЛАБЫХ УСТРОЙСТВАХ ==================
+     content-visibility: браузер не раскладывает и не рисует строки
+     длинного списка вне экрана. Для журнала/выдачи на 300+ строк это
+     главный выигрыш: первый paint и скролл становятся плавными.
+     contain-intrinsic-size даёт примерную высоту, чтобы скроллбар
+     не «прыгал». Safari <17 и Firefox просто игнорируют свойство. */
+  .cv-rows > * {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 72px;
+  }
+  .cv-block {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 320px;
+  }
+  /* Скроллящаяся лента: изолируем перерисовку (paint) и раскладку
+     внутри блока — соседи (шапка, вкладки) не участвуют в reflow. */
+  .isolate-paint {
+    contain: paint;
+  }
+  /* Отключаем «липкие» hover-эффекты на тач-устройствах: hover после
+     тапа остаётся висеть и выглядит как баг, а transition по
+     box-shadow стоит перерисовки всего слоя. */
+  .no-motion * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
+
+/* --- Знак библиотеки на экранах входа и на главной --- */
+/* Плитка медленно «дышит» светом, полка внутри слегка наклоняется:
+   экран входа перестаёт выглядеть зависшим (раньше это читалось как
+   «страница не прогрузилась»), но движение слишком медленное, чтобы
+   тянуть на себя взгляд. Обе анимации — transform/box-shadow на одном
+   маленьком элементе, ни layout, ни paint соседей.
+   motion-reduce и «лёгкий режим» выключают их полностью. */
+@keyframes logo-book {
+  0%,
+  100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  22% {
+    transform: rotate(-9deg) translateY(-0.5px);
+  }
+  58% {
+    transform: rotate(7deg) translateY(0.5px);
+  }
+  82% {
+    transform: rotate(-2deg) translateY(0);
+  }
+}
+@keyframes logo-halo {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--panel-foreground) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in oklab, var(--panel-foreground) 0%, transparent);
+  }
+}
+.logo-tile {
+  animation: logo-halo 3.6s ease-in-out infinite;
+}
+.logo-book {
+  transform-origin: 50% 78%;
+  animation: logo-book 3.6s ease-in-out infinite;
+}
+
+/* --- Шторки (все разделы, карточка учебника на телефоне) --- */
+/* Короткий выезд снизу: без него панель появляется «из ниоткуда» и на
+   60-Гц экране это выглядит как подвисание приложения. */
+@keyframes sheet-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0.5;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.sheet-in {
+  animation: sheet-in 0.18s ease-out;
+}
+
+/* ============================ ДОСТУПНОСТЬ ============================ */
+/* Единый рубильник для анимаций — экономит и глаза, и кадры на
+   старых Android: трансформации и тени уходят в ноль. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-icon-sway {
+  .logo-tile,
+  .logo-book,
+  .sheet-in,
+  .animate-pulse,
+  .animate-spin {
     animation: none;
   }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Ручной «лёгкий режим» (шестерёнка на главной) ---
+   Для самых слабых устройств: никаких теней, скруглений-перерисовок,
+   hover-подъёмов и анимаций; обложки книг не грузятся вовсе.
+   Класс ставится на <html> скриптом до первой отрисовки. */
+[data-perf="lean"] *,
+[data-perf="lean"] *::before,
+[data-perf="lean"] *::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+[data-perf="lean"] img {
+  display: none !important;
+}
+[data-perf="lean"] .panel {
+  box-shadow: none;
 }
 
 /* --- Режимы для зрения (шестерёнка на главной) --- */
 
 /* Повышенная контрастность: текст темнее, границы и поля заметнее. */
 [data-a11y="contrast"] {
-  --foreground: oklch(0.1 0.01 265.7);
-  --muted-foreground: oklch(0.32 0.02 265.7);
-  --border: oklch(0.55 0.02 265.7);
-  --input: oklch(0.45 0.02 265.7);
+  --foreground: oklch(0.13 0.006 260);
+  --muted-foreground: oklch(0.32 0.01 260);
+  --border: oklch(0.45 0.01 260);
+  --input: oklch(0.38 0.01 260);
+  --card: oklch(1 0 0);
+  --background: oklch(0.996 0.002 260);
+  --shadow-card: none;
+  --shadow-panel: none;
 }
-[data-a11y="contrast"].dark, .dark [data-a11y="contrast"] {
+[data-a11y="contrast"].dark,
+.dark [data-a11y="contrast"] {
+  /* Фон остаётся заданным (3 8 10): добавляем только яркость текста и линий. */
   --foreground: oklch(1 0 0);
-  --muted-foreground: oklch(0.85 0.01 265.7);
-  --border: oklch(0.75 0.01 265.7);
-  --input: oklch(0.8 0.01 265.7);
+  --muted-foreground: oklch(0.88 0.01 229);
+  --border: oklch(0.78 0.01 229);
+  --input: oklch(0.84 0.01 229);
 }
 
 /* Дальтонизм (красный–зелёный: протанопия, дейтеранопия).
    Статусы разводятся по паре синий ↔ оранжевый: они различимы
    и по оттенку, и по яркости; жёлтый «утеряна» остаётся узнаваемым. */
 [data-a11y="daltonism-rg"] {
-  --success: oklch(0.55 0.17 245);
+  --success: oklch(0.53 0.16 245);
   --success-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.65 0.19 45);
-  --destructive-foreground: oklch(0.16 0.03 45);
-  --warning: oklch(0.8 0.16 85);
+  --destructive: oklch(0.63 0.19 45);
+  --destructive-foreground: oklch(0.18 0.03 45);
+  --warning: oklch(0.79 0.16 85);
   --warning-foreground: oklch(0.24 0.05 85);
 }
 
 /* Дальтонизм (синий–жёлтый: тританопия).
    Статусы разводятся по паре оранжевый ↔ пурпурный. */
 [data-a11y="daltonism-by"] {
-  --success: oklch(0.68 0.16 45);
+  --success: oklch(0.66 0.16 45);
   --success-foreground: oklch(0.18 0.04 45);
   --destructive: oklch(0.5 0.2 330);
   --destructive-foreground: oklch(0.985 0 0);
@@ -150,4 +479,44 @@ body {
   /* Основной синий → пурпурно-синий, чтобы не сливался со статусами. */
   --primary: oklch(0.5 0.23 300);
   --primary-foreground: oklch(0.985 0 0);
+  --panel: oklch(0.32 0.08 300);
 }
+
+/* ============================== iOS ==============================
+   Тач-таргеты: Apple HIG — 44×44pt, Material — 48×48dp. Берём 44px как
+   нижнюю границу для ВСЕХ указательных устройств, но только там, где
+   палец: на десктопе мышь промахивается реже, и 44px съели бы экран.
+   min-height не действует на строчные <a> внутри текста (это inline-box),
+   поэтому ссылки в абзацах не распухают. */
+@media (pointer: coarse) {
+  :where(button, [role="button"], summary, .touchable) {
+    min-height: 2.75rem;
+  }
+  :where(button, [role="button"]):not(:has(span)):not(:has(svg)) {
+    min-width: 2.75rem;
+  }
+  /* Компактные контролы (крестик, «копировать») явно помечаем data-tight —
+     они остаются мелкими визуально, зона тапа у них своя. */
+  :where([data-tight]) {
+    min-height: 0;
+    min-width: 0;
+  }
+}
+
+/* iOS Safari: если у поля шрифт меньше 16px, фокус по нему ЗУМИТ страницу
+   и потом «забывает» отзумить — форма уезжает и остаётся кривой.
+   Правила по тегу не работают: утилита .text-sm специфичнее, поэтому
+   бьём по самим классам (input.text-sm = 0,1,1 > .text-sm = 0,1,0).
+   @supports(-webkit-touch-callout) — только WebKit, то есть iPhone/iPad:
+   на десктопе и Android плотный 14px в фильтрах остаётся как был. */
+@supports (-webkit-touch-callout: none) {
+  input.text-xs,
+  input.text-sm,
+  select.text-xs,
+  select.text-sm,
+  textarea.text-xs,
+  textarea.text-sm {
+    font-size: 16px;
+  }
+}
+

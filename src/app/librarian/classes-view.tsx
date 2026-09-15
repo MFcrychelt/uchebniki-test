@@ -80,12 +80,13 @@ export default function ClassesView() {
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // pointerId/target в снимке точки старта не нужны: перетаскивание считаем
+  // по clientX/clientY + elementFromPoint (см. onChipMove), а не по
+  // setPointerCapture — на тач-устройствах capture мешал «отпусканию».
   const startPt = useRef<{
     x: number;
     y: number;
     payload: DragPayload;
-    pointerId: number;
-    target: HTMLElement;
   } | null>(null);
   const skipClick = useRef(false);
 
@@ -461,7 +462,7 @@ export default function ClassesView() {
               <select
                 value={setId}
                 onChange={(e) => setSetId(e.target.value)}
-                className="mt-2 h-12 w-full rounded-md border border-input bg-card px-3 text-base"
+                className="mt-2 h-12 w-full rounded-lg border border-input bg-card px-3 text-base"
               >
                 <option value="">Выбрать набор…</option>
                 {sets.map((s) => (

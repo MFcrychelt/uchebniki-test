@@ -18,10 +18,12 @@
 //     вовсе (нормальное состояние — проверка «все ли с местами»);
 //   - unknown           — отсканирована, но ISBN нет в каталоге.
 
-/** Нормализация ISBN: убирает дефисы и пробелы (EAN-13 даёт чистые цифры). */
-export function normalizeIsbn(raw: string): string {
-  return raw.replace(/[-\s]/g, "").trim();
-}
+// Нормализация ISBN — в src/lib/isbn.ts (общая с выдачей и каталогом).
+// Расширение .ts в спецификаторе обязательно: этот модуль (и его тест)
+// грузится чистым node, а node разрешает только точные пути.
+import { normalizeIsbn } from "./isbn.ts";
+
+export { normalizeIsbn };
 
 export interface StocktakeBook {
   bookId: string;

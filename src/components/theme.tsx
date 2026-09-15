@@ -10,13 +10,14 @@ import { Moon, Sun } from "lucide-react";
  */
 
 export type Theme = "light" | "dark" | "system";
-const THEME_KEY = "uchebniki:theme";
 
 /**
- * Инлайн-скрипт ДО первой отрисовки: без него при тёмной теме страница
- * мигнула бы белым (FOUC). Ставим первым элементом <body> в layout.
+ * Значения — в src/lib/init-scripts.ts (единственный источник для
+ * серверного layout и клиента). Отсюда реэкспорт, чтобы не плодить два
+ * места, где правят цвет хрома мобильного браузера.
  */
-export const themeInitScript = `(function(){try{var t=localStorage.getItem("${THEME_KEY}");if(t!=="light"&&t!=="dark"&&t!=="system")t="system";var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var el=document.documentElement;el.classList.toggle("dark",d);el.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
+export { THEME_COLORS } from "@/lib/init-scripts";
+import { THEME_COLORS, THEME_KEY } from "@/lib/init-scripts";
 
 interface ThemeCtx {
   /** Выбор пользователя. */
@@ -43,7 +44,11 @@ function applyTheme(t: Theme): "light" | "dark" {
   el.style.colorScheme = dark ? "dark" : "light";
   // Цвет статус-бара мобильного браузера — под тему
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", dark ? "#101218" : "#2563eb");
+  if (meta)
+    meta.setAttribute(
+      "content",
+      dark ? THEME_COLORS.dark : THEME_COLORS.light
+    );
   return dark ? "dark" : "light";
 }
 

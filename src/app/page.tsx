@@ -1,36 +1,42 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  CheckCircle2,
+  BookOpen,
   ClipboardList,
-  Library,
+  Printer,
   QrCode,
   ScanLine,
-  ShieldCheck,
-  Undo2,
   Users,
-  Zap,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Eyebrow, Panel, PanelField } from "@/components/ui/panel";
 import { VersionBadge } from "@/components/version-badge";
 import { ThemeToggle } from "@/components/theme";
 import { AccessibilityGear } from "@/components/accessibility";
+import { InstallHint } from "@/components/install-hint";
+import { LogoMark } from "@/components/ui/logo-mark";
 
-const sections = [
+/**
+ * Главная — «вход» в приложение, а не лендинг-витрина.
+ *
+ * Композиция взята с fermi.gg: светлый нейтральный холст, ОДНА насыщенная
+ * панель с крупным белым заголовком, внутри неё — поля и главный жест;
+ * всё остальное (шаги, вопросы) — спокойные карточки на том же холсте.
+ *
+ * Про скорость на слабых устройствах:
+ *  - страница серверная и статическая: 0 КБ своего JS, ни одного запроса к БД;
+ *  - ноль изображений и веб-шрифтов (только системный стек);
+ *  - decorative blur/glow удалён: был `blur-3xl`-круг, который на дешёвом
+ *    Android стоит перерисовки всего слоя при каждом скролле.
+ */
+
+const roles = [
   {
     href: "/student",
     icon: QrCode,
     title: "Ученик",
     role: "личный кабинет",
     description:
-      "Ваш список учебников на год, история выдачи и заявки на книги. Вход — по ссылке от учителя, логину или QR-коду.",
-    color: "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300",
+      "Список учебников класса на год, что уже на руках и чего не хватает. Книги вы берёте с полки сами — по своему списку.",
   },
   {
     href: "/librarian",
@@ -38,9 +44,7 @@ const sections = [
     title: "Библиотекарь",
     role: "панель сотрудника",
     description:
-      "Откройте ученика по QR-коду и отмечайте книги галочками. Долги, журнал и отчёты — под рукой.",
-    color:
-      "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300",
+      "Сверяете по карточке: открыли ученика по QR — отметили, что он реально принёс. Долги, журнал и отчёты рядом.",
   },
   {
     href: "/admin",
@@ -48,12 +52,13 @@ const sections = [
     title: "Администратор",
     role: "настройки",
     description:
-      "Классы и ученики, каталог учебников, карточки для входа и журнал всех действий.",
-    color:
-      "bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300",
+      "Классы и ученики, каталог учебников, карточки для входа, журнал действий.",
   },
 ];
 
+/* Порядок показан так, как он устроен в школе: ребёнок сам набирает учебники
+   с полки, а сотрудник на выдаче сверяет комплект по карточке. Приложение
+   фиксирует состав, а не заменяет выдачу «через прилавок». */
 const steps = [
   {
     icon: Users,
@@ -61,136 +66,203 @@ const steps = [
     text: "Администратор заводит классы и каталог учебников, каждому ученику выдаётся карточка с QR-кодом.",
   },
   {
+    icon: BookOpen,
+    title: "Ученик собирает сам",
+    text: "В кабинете видно список класса, что уже на руках и чего не хватает — нужные книги ученик берёт с полки сам.",
+  },
+  {
     icon: ScanLine,
-    title: "Выдача",
-    text: "Библиотекарь сканирует QR ученика и отмечает книги — поштучно по ISBN или все сразу.",
+    title: "Библиотекарь сверяет по QR",
+    text: "Сканировали карточку ученика — его список открыт: отметьте принесённое по ISBN или «выдать всё», расхождение видно сразу.",
   },
   {
     icon: ClipboardList,
-    title: "Учёт",
-    text: "Каждая операция попадает в журнал: кто, какую книгу и когда. Данные не теряются и всегда под рукой.",
+    title: "Учёт и возврат",
+    text: "Каждая операция — в журнале: кто, какую книгу и когда. В конце года видно, что не вернули; приём и списание в пару касаний.",
+  },
+];
+
+const faq = [
+  {
+    q: "Кто набирает книги с полки?",
+    a: "Ученик сам: в личном кабинете у него список класса, отметки «выдано» и «запрошено», остаток на складе. Приложение нужно, чтобы состав был зафиксирован, — поэтому на выдаче сотрудник сканирует QR ученика и сверяет комплект, а не носит книги по классам.",
   },
   {
-    icon: Undo2,
-    title: "Возврат",
-    text: "В конце года по каждому ученику видны невозвращённые книги — приём и списание в пару касаний.",
+    q: "Потерял карточку с QR-кодом",
+    a: "Зайдите по логину и паролю (их выдаёт библиотекарь) или попросите у учителя одноразовую ссылку ещё раз. Карточку можно распечатать снова из кабинета.",
+  },
+  {
+    q: "Зачем вписывать фамилию в книгу?",
+    a: "Подпись в конце книги остаётся главным доказательством, что учебник ваш: по ней библиотекарь принимает возврат в конце года.",
+  },
+  {
+    q: "Штрихкод книги не читается",
+    a: "Отойдите на ладонь: камера ловит код целиком вместе с полем вокруг. Если блик — переверните книгу; если и так не выходит, введите ISBN в поле под кнопками.",
+  },
+  {
+    q: "Нужно оформить весь класс за минуту",
+    a: "Сканируйте QR ученика и нажмите «Выдать всё» — список класса отмечен разом, лишнее потом снимается одной галочкой. Так класс проходит за один подход, а не по одной книге.",
   },
 ];
 
 export default function Home() {
   return (
-    <main className="relative mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-6 sm:py-14">
-      {/* Кнопки в потоке документа, не поверх шапки: иначе на телефоне
+    <main className="safe-x mx-auto flex min-h-dvh w-full max-w-4xl flex-col pt-2 pb-10">
+      {/* Кнопки — в потоке документа, не поверх шапки: иначе на телефоне
           заголовок перехватывает тап (абсолютный слой + blur). */}
-      <div className="relative z-50 mb-2 flex justify-end gap-0.5">
+      <div className="mb-3 flex justify-end gap-1">
         <ThemeToggle />
         <AccessibilityGear />
       </div>
-      {/* --- Шапка --- */}
-      <header className="relative mb-12 flex flex-col items-center text-center sm:mb-14">
-        {/* Мягкое цветовое пятно за иконкой — не ловит тапы */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-16 left-1/2 z-0 h-56 w-[32rem] max-w-full -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"
-        />
-        <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-          <Library className="h-8 w-8" />
-        </div>
-        <h1 className="relative text-3xl font-bold tracking-tight sm:text-4xl">
-          Школьная библиотека
-        </h1>
-        <p className="relative mt-3 max-w-xl text-muted-foreground">
-          Учёт школьных учебников без бумажных журналов: что выдано, что на
-          руках и кто не вернул — видно в любой момент.
-        </p>
-        <div className="relative mt-4 flex flex-wrap items-center justify-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-            <Zap className="h-3.5 w-3.5 text-success" />
-            Быстро
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-            Просто
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-success" />
-            Безопасно
-          </span>
-        </div>
-      </header>
 
-      {/* --- Разделы --- */}
-      <section className="mb-12 grid gap-4 sm:grid-cols-3">
-        {sections.map((s) => (
-          <Link
-            key={s.href}
-            href={s.href}
-            className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            {/* Тень и подъём — на самой карточке (один радиус, один
-                переход); active — отклик на тап. */}
-            <Card className="flex h-full flex-col transition-[transform,box-shadow] duration-150 group-hover:-translate-y-0.5 group-hover:shadow-md group-active:scale-[0.99] group-active:shadow-none">
-              <CardHeader className="flex-1">
-                <div
-                  className={`mb-3 flex h-11 w-11 items-center justify-center rounded-xl ${s.color}`}
-                >
-                  <s.icon className="h-5 w-5" />
-                </div>
-                <CardTitle>{s.title}</CardTitle>
-                <CardDescription>
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-primary">
-                    {s.role}
-                  </span>
-                  {s.description}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-                  Открыть
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+      {/* ------------------------------ HERO ------------------------------ */}
+      <Panel
+        eyebrow="Школьная библиотека · учёт учебников"
+        // Знак библиотеки — тот же, что на обоих экранах входа:
+        // главная и вход должны читаться как одно приложение.
+        right={<LogoMark size="lg" />}
+        title={
+          <>
+            Выдача учебников —
+            <br className="hidden sm:block" /> в одно касание
+          </>
+        }
+        // Начертание задаёт Panel (semibold + лёгкое сжатие трекинга):
+        // заголовок должен читаться как шапка рабочего экрана, а не плакат.
+        titleClassName="text-[1.65rem] sm:text-[2rem] leading-[1.22]"
+        subtitle="Что выдано, что на руках и кто не вернул — видно сразу, без бумажного журнала и длинных форм."
+        footer={
+          <div className="flex flex-wrap gap-2">
+            {roles.map((r, i) => (
+              <Link
+                key={r.href}
+                href={r.href}
+                className="panel-field group flex min-h-16 flex-1 basis-full items-center gap-3 p-3.5 text-left transition-[background-color,transform] duration-100 hover:bg-white/20 active:scale-[0.99] sm:basis-0"
+              >
+                <span className="num flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 text-sm font-bold text-panel-foreground">
+                  {String(i + 1).padStart(2, "0")}
                 </span>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </section>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <r.icon className="h-4 w-4 shrink-0" aria-hidden />
+                    <span className="truncate text-base font-semibold">{r.title}</span>
+                    <span className="eyebrow hidden text-panel-muted sm:inline">
+                      {r.role}
+                    </span>
+                  </span>
+                  <span className="panel-muted mt-0.5 block text-xs leading-snug sm:text-sm">
+                    {r.description}
+                  </span>
+                </span>
+                <ArrowRight
+                  className="h-5 w-5 shrink-0 text-panel-muted transition-transform duration-150 group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </Link>
+            ))}
+          </div>
+        }
+      />
 
-      {/* --- Как это работает --- */}
-      <section className="mb-4">
-        <h2 className="text-lg font-semibold">Как это работает</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          От подготовки до возврата — четыре шага.
-        </p>
-        <ol className="mt-4 grid gap-3 sm:grid-cols-2">
+      {/* -------------------------- КАК ЭТО РАБОТАЕТ -------------------------- */}
+      <section className="mt-10">
+        <Eyebrow className="text-primary">Как это работает</Eyebrow>
+        <h2 className="mt-1 text-xl sm:text-[1.5rem]">
+          Ученик собирает книги сам — сотрудник сверяет по QR
+        </h2>
+        <ol className="mt-4 grid gap-2 sm:grid-cols-2">
           {steps.map((step, i) => (
             <li key={step.title}>
-              <Card className="h-full">
-                <CardContent className="p-4 sm:p-5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-primary">
-                      Шаг {i + 1}
-                    </span>
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <step.icon className="h-4 w-4" />
-                    </span>
-                  </div>
-                  <p className="mt-2.5 font-semibold leading-snug">
+              {/* Статичная карточка: ни теней, ни hover-подъёмов — на
+                  300-строчных экранах это тот же вид, что и у ферми, но
+                  без перерисовки слоёв. */}
+              <div className="flex h-full gap-3.5 rounded-lg border border-border bg-card p-4">
+                <span className="num text-xl font-semibold leading-none text-primary/55">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 font-semibold leading-snug">
+                    <step.icon className="h-4 w-4 shrink-0 text-primary" aria-hidden />
                     {step.title}
                   </p>
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                     {step.text}
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </li>
           ))}
         </ol>
       </section>
 
-      <footer className="mt-auto flex flex-col items-center gap-1.5 border-t border-border pt-6 text-center text-xs text-muted-foreground">
+      {/* ------------------------------ ЧТО ВНУТРИ ------------------------------ */}
+      <section className="mt-8 grid gap-2 sm:grid-cols-3">
+        {[
+          {
+            icon: QrCode,
+            title: "QR вместо фамилий",
+            text: "Ученик показывает карточку — и его список открыт: кто он и что ему положено, без тетради на ресепшене.",
+          },
+          {
+            icon: Printer,
+            title: "Печать карточек",
+            text: "Класс целиком на листе А4: карточки с кодом вырезаются и раздаются за 10 минут.",
+          },
+          {
+            icon: ScanLine,
+            title: "Штрихкод книги",
+            text: "ISBN с обложки ставит галочку сам — так быстрее сверять то, что ученик принёс, и то, что он отнёс обратно.",
+          },
+        ].map((f) => (
+          <div
+            key={f.title}
+            className="rounded-lg border border-border bg-card p-4"
+          >
+            <f.icon className="h-5 w-5 text-primary" aria-hidden />
+            <p className="mt-2 font-semibold leading-snug">{f.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              {f.text}
+            </p>
+          </div>
+        ))}
+      </section>
+
+      {/* ------------------------------ ЧАСТЫЕ ВОПРОСЫ ------------------------------ */}
+      <section className="mt-8">
+        <Eyebrow className="text-primary">Частые вопросы</Eyebrow>
+        <PanelField className="mt-3 overflow-hidden p-0">
+          <ul>
+            {faq.map((item) => (
+              <li key={item.q} className="border-b border-border last:border-b-0">
+                {/* Нативные details/summary: аккордеон без единого байта JS
+                    и без анимации высоты — на слабом телефоне не лагает. */}
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                    {item.q}
+                    <span
+                      aria-hidden
+                      className="num shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-45"
+                    >
+                      +
+                    </span>
+                  </summary>
+                  <p className="px-4 pb-4 text-sm leading-relaxed text-muted-foreground">
+                    {item.a}
+                  </p>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </PanelField>
+        <div className="mt-3">
+          <InstallHint />
+        </div>
+      </section>
+
+      <footer className="mt-10 flex flex-col items-center gap-1.5 border-t border-border pt-6 text-center text-xs text-muted-foreground">
         <p className="flex flex-wrap items-center justify-center gap-1.5">
-          PWA · Next.js · PostgreSQL · Prisma 8
-          <VersionBadge className="flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5" />
+          Next.js · PostgreSQL · Prisma 8
+          <VersionBadge className="num flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5" />
         </p>
         <p>Сделано для школьной библиотеки</p>
       </footer>

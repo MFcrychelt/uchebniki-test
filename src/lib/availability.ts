@@ -12,7 +12,13 @@ export interface BookAvailability {
   available: number;
 }
 
-function toAvailability(
+/**
+ * Арифметика остатка: `available = copies − выдано − списано`.
+ * Экспортируется, чтобы запись выдачи (src/lib/loan-writes.ts) считала ровно
+ * так же, как показывают списки: расхождение здесь выглядит как «в интерфейсе
+ * было 0, а система всё равно выдала».
+ */
+export function availabilityOf(
   total: number,
   out: number,
   lost: number
@@ -33,7 +39,7 @@ export async function bookAvailability(
   bookId: string
 ): Promise<BookAvailability> {
   const map = await bookAvailabilityMap([bookId]);
-  return map.get(bookId) ?? toAvailability(1, 0, 0);
+  return map.get(bookId) ?? availabilityOf(1, 0, 0);
 }
 
 /** Доступность нескольких книг (одним запросом на выдачи). */
@@ -65,7 +71,7 @@ export async function bookAvailabilityMap(
   for (const b of books) {
     result.set(
       b.id,
-      toAvailability(b.copies, outByBook.get(b.id) ?? 0, lostByBook.get(b.id) ?? 0)
+      availabilityOf(b.copies, outByBook.get(b.id) ?? 0, lostByBook.get(b.id) ?? 0)
     );
   }
   // Книги, которых нет в каталоге (удалили в полёте) — не блокируем выдачу.
@@ -73,7 +79,7 @@ export async function bookAvailabilityMap(
     if (!result.has(id)) {
       result.set(
         id,
-        toAvailability(1, outByBook.get(id) ?? 0, lostByBook.get(id) ?? 0)
+        availabilityOf(1, outByBook.get(id) ?? 0, lostByBook.get(id) ?? 0)
       );
     }
   }

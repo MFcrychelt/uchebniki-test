@@ -128,7 +128,7 @@ function QrCardsInner() {
                   const qs = q.toString();
                   window.history.replaceState(null, "", qs ? `/print/qr-cards?${qs}` : "/print/qr-cards");
                 }}
-                className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+                className="h-11 rounded-lg border border-input bg-card px-2 text-base"
               >
                 <option value="">Все классы</option>
                 {classes.map((c) => (
@@ -212,7 +212,7 @@ export default function QrCardsPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center">
+        <main className="flex min-h-dvh items-center justify-center">
           <p className="text-muted-foreground">Загрузка…</p>
         </main>
       }

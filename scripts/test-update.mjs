@@ -61,12 +61,21 @@ ok(
 );
 
 console.log("getUpdateStatus (репозиторий)");
-const [gitShort] = await Promise.all([
+const [gitShort, gitBranch] = await Promise.all([
   pExecFile("git", ["rev-parse", "--short", "HEAD"]).then((r) => r.stdout.trim()),
+  pExecFile("git", ["rev-parse", "--abbrev-ref", "HEAD"]).then((r) => r.stdout.trim()),
 ]);
 const status = await getUpdateStatus(true);
 ok(status.version?.short === gitShort, "версия = текущий git HEAD");
-ok(status.branch === "arena/01a09bc5-uchebniki-project", "ветка определена");
+// Ветку сравниваем с текущей, а не с зашитым именем: иначе тест падает на
+// любой другой ветке (в т.ч. в CI и у школьного админа, который обновляется
+// из своей), и это падание заглушает всё, что идёт после него в npm test.
+ok(
+  typeof status.branch === "string" &&
+    status.branch.length > 0 &&
+    status.branch === gitBranch,
+  `ветка определена (${gitBranch})`
+);
 ok(
   typeof status.behind === "number" && status.behind >= 0,
   "отставание — число (origin доступен)"

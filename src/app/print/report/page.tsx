@@ -3,6 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { db } from "@/lib/prisma";
 import PrintToolbar from "../toolbar";
 import "../print.css";
+import { requireStaff } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,12 @@ export default async function PrintReportPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
+  // Эти листы формируются прямым запросом к БД в серверном компоненте, без
+  // API-слоя — значит проверка сессии нужна здесь, иначе список класса,
+  // этикетки фонда, акт или журнал печатает любой, кто знает адрес.
+  await requireStaff("/print/report");
+
+
   const { from, to } = await searchParams;
   const fromTs = from ? Temporal.Instant.from(`${from}T00:00:00Z`) : null;
   const toTs = to ? Temporal.Instant.from(`${to}T23:59:59Z`) : null;

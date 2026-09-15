@@ -149,7 +149,12 @@ export default function QueuePanel() {
                           · не отправлено — проверьте вручную
                         </span>
                       )}
-                    </p>
+                      {/* Причина с сервера: «нет в наличии» и «не в наборе
+                          года» — это не «уже сделано», и человеку надо видеть,
+                          что именно не пустило, а не гадать по точке. */}
+                      {op.lastError && (
+                        <span className="text-destructive"> — {op.lastError}</span>
+                      )}                    </p>
                   </div>
                   <button
                     onClick={() => removeOp(op.id)}

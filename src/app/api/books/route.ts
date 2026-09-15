@@ -5,10 +5,18 @@ import { staffUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { bookAvailabilityMap } from "@/lib/availability";
 import { coverIds } from "@/lib/covers";
+import { isbnVariants, normalizeIsbn } from "@/lib/isbn";
 
 // Каталог учебников. ?q= — поиск по названию/предмету/ISBN (без учёта
 // регистра). Каждая книга несёт available — сколько ещё можно выдать.
 export async function GET(request: Request) {
+  // Каталог = внутренний документ (название, ISBN, тираж, сколько свободно).
+  // Ученикам он не нужен: свой список они видят через /api/student/qr/:token,
+  // поэтому анонимная выдача — только лишний способ снять весь фонд.
+  if (!(await staffUser())) {
+    return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
+  }
+
   const url = new URL(request.url);
   const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
 
@@ -20,12 +28,17 @@ export async function GET(request: Request) {
   // Фильтр на стороне приложения: в dev-БД коллация C, и lower() в SQL
   // не конвертирует кириллицу — ilike искал бы только латиницу/цифры.
   const filtered = q
-    ? all.filter(
-        (b) =>
-          b.title.toLowerCase().includes(q) ||
-          b.subject.toLowerCase().includes(q) ||
-          b.isbn.toLowerCase().includes(q)
-      )
+    ? all.filter((b) => {
+        if (b.title.toLowerCase().includes(q)) return true;
+        if (b.subject.toLowerCase().includes(q)) return true;
+        // Поиск по ISBN — тоже по формам: человек держит в руках обложку с
+        // 10-значным кодом, а в базе EAN-13 (или наоборот). Иначе каталог
+        // «не находит» книгу, которую только что отказался заводить второй
+        // записью — выглядит как сбой.
+        const needle = normalizeIsbn(q);
+        if (!needle) return false;
+        return isbnVariants(b.isbn).some((v) => v.toLowerCase().includes(needle));
+      })
     : all;
 
   const [availabilityMap, covers] = await Promise.all([
@@ -53,7 +66,11 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { isbn, title, subject, copies, grade } = body;
 
-  if (!isbn || !title || !subject) {
+  // Штрихкод вводят с обложки — дефисы и пробелы остаются. Храним очищенным:
+  // иначе книга, заведённая «978-5-…», никогда не совпадёт со сканом, а
+  // сравнение на выдаче и в инвентаризации работает по чистым цифрам.
+  const cleanIsbn = normalizeIsbn(typeof isbn === "string" ? isbn : "");
+  if (!cleanIsbn || !title || !subject) {
     return NextResponse.json(
       { error: "Нужны isbn, title и subject" },
       { status: 400 }
@@ -71,13 +88,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // Дубль ищем по всем допустимым формам: 10-значная запись в каталоге и
+  // 13-значный скан — это одна и та же книга, а не две.
   const dup = await db.orm.public.Book
-    .where((b) => b.isbn.eq(isbn))
+    .where((b) => b.isbn.in(isbnVariants(cleanIsbn)))
     .first();
 
   if (dup) {
     return NextResponse.json(
-      { error: "Учебник с таким ISBN уже существует" },
+      {
+        error:
+          `Учебник с таким ISBN уже существует: «${dup.title}» ` +
+          `(в каталоге записан как ${dup.isbn})`,
+        code: "isbn_taken",
+      },
       { status: 409 }
     );
   }
@@ -89,7 +113,7 @@ export async function POST(request: Request) {
       : 1;
 
   const book = await db.orm.public.Book.create({
-    isbn,
+    isbn: cleanIsbn,
     title,
     subject,
     copies: safeCopies,

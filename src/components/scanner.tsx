@@ -13,8 +13,12 @@ interface ScannerProps {
   onScan: (text: string) => void;
   onClose: () => void;
   onError?: (message: string) => void;
-  /** Размер рамки прицела. */
-  qrbox?: { width: number; height: number };
+  /**
+   * Размер рамки прицела: фиксированный прямоугольник или функция от
+   * размера окна (на телефоне прицел должен занимать ~85% ширины, иначе
+   * штрихкод книги в него не влезает).
+   */
+  qrbox?: { width: number; height: number } | ((w: number, h: number) => { width: number; height: number });
   /**
    * Непрерывный режим: не закрываться после первого кода — можно
    * отсканировать подряд много книг, не нажимая кнопку заново.
@@ -61,7 +65,7 @@ export function Scanner({
   onScan,
   onClose,
   onError,
-  qrbox = { width: 260, height: 200 },
+  qrbox,
   continuous = false,
   closeLabel = "Отмена",
 }: ScannerProps) {
@@ -71,6 +75,14 @@ export function Scanner({
   onScanRef.current = onScan;
   onErrorRef.current = onError;
   const startedRef = useRef(false);
+  // Прицел по умолчанию — «почти на всю ширину», но не больше 320px:
+  // на 360px-телефоне фиксированные 260px оставляют слишком мало места
+  // под штрихкод книги, а на планшете библиотечный сканер не должен
+  // растягиваться на весь экран.
+  const box = qrbox ?? ((w: number, h: number) => {
+    const width = Math.min(Math.round(w * 0.86), 320);
+    return { width, height: Math.max(90, Math.min(Math.round(h * 0.45), 220)) };
+  });
   // Подавление повторов: html5-qrcode зовёт callback снова и снова,
   // пока тот же код в кадре.
   const lastScanRef = useRef<{ text: string; at: number } | null>(null);
@@ -87,11 +99,27 @@ export function Scanner({
         startedRef.current = true;
         scanner = new mod.Html5Qrcode(
           idRef.current,
-          formats ? { verbose: false, formatsToSupport: formats } : undefined
+          formats
+            ? {
+                verbose: false,
+                formatsToSupport: formats,
+                useBarCodeDetectorIfSupported: true,
+              }
+            : { verbose: false, useBarCodeDetectorIfSupported: true }
         );
+        // Производительность камеры на слабом телефоне:
+        //  - fps 6 вместо 10: декодер запускается реже, а QR/EAN всё ещё
+        //    ловится с первого кадра (рука человека не настолько быстра);
+        //  - useBarCodeDetectorIfSupported: если в браузере есть нативный
+        //    BarcodeDetector (Chrome/Android — есть), декодирует ЖЕЛЕЗО,
+        //    а не JS-библиотека: минус загрузка процессора и минус
+        //    тряска кадров. html5-qrcode сам откатывается на свой декодер,
+        //    если API нет (Safari/iOS).
+        const lean =
+          document.documentElement.dataset.perf === "lean";
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox },
+          { fps: lean ? 4 : 6, qrbox: box },
           (text) => {
             const s = scanner;
             if (!s) return;

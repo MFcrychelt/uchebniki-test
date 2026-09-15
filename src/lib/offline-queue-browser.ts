@@ -58,7 +58,11 @@ export function enqueueOp(op: QueueOp): void {
   window.dispatchEvent(new CustomEvent("uchebniki:queue-changed"));
 }
 
-/** Исполнить одну операцию: HTTP-статус или null при сетевом сбое. */
+/**
+ * Исполнить одну операцию: HTTP-статус плюс причина отказа (`code`/`error`
+ * из тела ответа) или null при сетевом сбое. Причина нужна, чтобы 409 вида
+ * «нет свободных экземпляров» не съедался очередью как «уже сделано».
+ */
 export async function executeOp(op: QueueOp): Promise<OpOutcome> {
   const req = opRequest(op);
   try {
@@ -67,7 +71,15 @@ export async function executeOp(op: QueueOp): Promise<OpOutcome> {
       headers: req.body ? { "Content-Type": "application/json" } : undefined,
       body: req.body,
     });
-    return { status: res.status };
+    if (res.ok) return { status: res.status };
+    const data = (await res.json().catch(() => null)) as
+      | { code?: unknown; error?: unknown }
+      | null;
+    return {
+      status: res.status,
+      code: typeof data?.code === "string" ? data.code : undefined,
+      error: typeof data?.error === "string" ? data.error : undefined,
+    };
   } catch {
     return { status: null };
   }

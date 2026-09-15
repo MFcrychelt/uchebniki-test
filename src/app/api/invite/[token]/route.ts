@@ -6,6 +6,7 @@ import {
   signSessionToken,
 } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
+import { tokenProbe } from "@/lib/rate-limit";
 import { db } from "@/lib/prisma";
 
 /**
@@ -23,11 +24,18 @@ export async function GET(
   const { token } = await params;
   const base = request.url;
 
+  // Ссылка одноразовая и публичная по замыслу — но перебирать её тоже
+  // бессмысленно дорого не даём (см. src/lib/rate-limit.ts).
+  const probe = tokenProbe(request, "invite");
+  const stop = probe.gate();
+  if (stop) return stop;
+
   const user = await db.orm.public.User
     .where((u) => u.inviteToken.eq(token))
     .first();
 
   if (!user || user.role !== "STUDENT" || user.inviteUsedAt) {
+    probe.noteNotFound();
     return NextResponse.redirect(new URL("/invite/invalid", base), 302);
   }
 

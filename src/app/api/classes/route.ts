@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma";
 
-import { adminGuard } from "@/lib/auth";
+import { adminGuard, staffUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 
-// Список классов с количеством учеников и списком учебников.
+// Список классов с количеством учеников и списком учебников — только для
+// персонала: класс + число учеников + номенклатура фонда сами по себе
+// сведения внутренние (и ключ к /print/class-list, где по classId
+// печатается список класса).
 export async function GET() {
+  if (!(await staffUser())) {
+    return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
+  }
+
   const classes = await db.orm.public.Class
     .include("students", (students) => students.count())
     .include("books", (books) => books.include("book"))

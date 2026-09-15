@@ -1,11 +1,18 @@
 import { db } from "@/lib/prisma";
 import PrintToolbar from "../toolbar";
 import "../print.css";
+import { requireStaff } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 // Печатные этикетки для книг каталога: /print/labels
 export default async function PrintLabelsPage() {
+  // Эти листы формируются прямым запросом к БД в серверном компоненте, без
+  // API-слоя — значит проверка сессии нужна здесь, иначе список класса,
+  // этикетки фонда, акт или журнал печатает любой, кто знает адрес.
+  await requireStaff("/print/labels");
+
+
   const books = await db.orm.public.Book
     .orderBy((b) => b.subject.asc())
     .all();

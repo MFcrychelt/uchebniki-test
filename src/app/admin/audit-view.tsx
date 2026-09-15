@@ -154,7 +154,7 @@ export default function AuditView() {
             <select
               value={entity}
               onChange={(e) => setEntity(e.target.value)}
-              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 rounded-lg border border-input bg-card px-2 text-base"
             >
               <option value="">Все</option>
               {Object.entries(ENTITY_LABELS).map(([k, v]) => (
@@ -170,7 +170,7 @@ export default function AuditView() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 rounded-lg border border-input bg-card px-2 text-base"
             />
           </div>
           <div className="space-y-1">
@@ -179,7 +179,7 @@ export default function AuditView() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 rounded-lg border border-input bg-card px-2 text-base"
             />
           </div>
           <div className="ml-auto flex items-center gap-2">

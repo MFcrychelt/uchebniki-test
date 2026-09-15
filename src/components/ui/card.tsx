@@ -8,7 +8,10 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-lg border border-border bg-card text-card-foreground shadow-sm",
+      // Тень — один мягкий «отрыв листа» (см. --shadow-card), у строк
+      // списков её нет вовсе: box-shadow на каждой из 300 строк журнала
+      // стоит дешёвому телефону заметной перерисовки при скролле.
+      "rounded-lg border border-border bg-card text-card-foreground shadow-card",
       className
     )}
     {...props}
@@ -22,7 +25,8 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-5", className)}
+    // p-4 на телефоне (вертикальное пространство дороже), p-5 на планшете.
+    className={cn("flex flex-col space-y-1.5 p-4 sm:p-5", className)}
     {...props}
   />
 ));
@@ -34,7 +38,9 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("font-semibold leading-none tracking-tight", className)}
+    // leading-snug вместо leading-none: заголовки карточек часто в 2 строки,
+    // «нона» склеивала их. Трекинг почти нулевой — вид строгого документа.
+    className={cn("text-[1.02rem] font-semibold leading-snug tracking-[-0.006em]", className)}
     {...props}
   />
 ));
@@ -66,7 +72,7 @@ const CardFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex items-center p-5 pt-0", className)}
+    className={cn("flex items-center p-4 pt-0 sm:p-5 sm:pt-0", className)}
     {...props}
   />
 ));

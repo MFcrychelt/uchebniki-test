@@ -7,16 +7,21 @@ import {
   GraduationCap,
   KeyRound,
   Layers,
+  Pencil,
   Plus,
   Printer,
   QrCode,
   Rocket,
+  Search,
   ScrollText,
   Trash2,
   Upload,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StaffTabs, type StaffTabItem } from "@/components/ui/staff-tabs";
+import { BookCover } from "@/components/book-cover";
+import { BookEditor, type BookUpdated } from "@/components/book-editor";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +36,7 @@ import StaffUser from "@/components/staff-user";
 import { PageHeader } from "@/components/ui/page-header";
 import type { Book, ClassInfo, ClassWithDetails, Student } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useIsWide } from "@/lib/use-is-wide";
 // Редкие вкладки — ленивые чанки: начальный бандл админки меньше,
 // грузится быстрее на слабых телефонах (как во вкладках библиотекаря).
 const ImportView = lazy(() => import("./import-view"));
@@ -56,6 +62,22 @@ type Tab =
   | "import"
   | "audit"
   | "update";
+
+/**
+ * Разделы администровки в одном списке — вид (нижний док на телефоне,
+ * лента на планшете, панель слева на мониторе) выбирает сам StaffTabs.
+ * В док вынесено то, что трогают каждый день; редкое (импорт, аудит,
+ * обновления) — под «Ещё».
+ */
+const ADMIN_TABS: (StaffTabItem & { id: Tab })[] = [
+  { id: "classes", label: "Классы", icon: GraduationCap, inDock: true },
+  { id: "students", label: "Ученики", icon: Users, inDock: true },
+  { id: "books", label: "Книги", icon: BookOpen, inDock: true },
+  { id: "links", label: "Ссылки", icon: KeyRound },
+  { id: "import", label: "Импорт", icon: Upload },
+  { id: "audit", label: "Аудит", icon: ScrollText },
+  { id: "update", label: "Обновления", icon: Rocket },
+];
 
 async function api<T>(
   url: string,
@@ -85,8 +107,12 @@ export default function AdminPanel({ userName }: { userName: string }) {
   const [newStudent, setNewStudent] = useState({ lastName: "", firstName: "", classId: "" });
   const [newBook, setNewBook] = useState({ isbn: "", title: "", subject: "", copies: "1" });
   const [openClass, setOpenClass] = useState<string | null>(null);
+  // Каталог: фильтр по строке (без запроса — список уже целиком в состоянии)
+  // и учебник, открытый в предпросмотре справа / шторкой на телефоне.
+  const [bookQ, setBookQ] = useState("");
+  const [selectedBook, setSelectedBook] = useState<Book | null>(null);
+  const wide = useIsWide();
   const [bookToAdd, setBookToAdd] = useState<Record<string, string>>({});
-  const [copiesDraft, setCopiesDraft] = useState<Record<string, string>>({});
 
   const flash = useCallback(
     (kind: Status["kind"], message: string) => setStatus({ kind, message }),
@@ -179,29 +205,6 @@ export default function AdminPanel({ userName }: { userName: string }) {
     } else flash("error", r.error ?? "Ошибка");
   };
 
-  const saveCopies = async (b: Book) => {
-    const raw = copiesDraft[b.id] ?? String(b.copies ?? 1);
-    const value = Math.floor(Number(raw));
-    if (!Number.isFinite(value) || value < 1) {
-      flash("error", "Тираж — целое число не меньше 1.");
-      setCopiesDraft((m) => ({ ...m, [b.id]: String(b.copies ?? 1) }));
-      return;
-    }
-    const r = await api(`/api/books/${b.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ copies: value }),
-    });
-    if (r.ok) {
-      setCopiesDraft((m) => {
-        const { [b.id]: _drop, ...rest } = m;
-        return rest;
-      });
-      flash("success", `«${b.title}»: тираж ${value}.`);
-      refresh();
-    } else flash("error", r.error ?? "Не удалось изменить тираж");
-  };
-
   const deleteBook = async (b: Book) => {
     if (!confirm(`Удалить «${b.title}» из каталога?`)) return;
     const r = await api(`/api/books/${b.id}`, { method: "DELETE" });
@@ -235,6 +238,17 @@ export default function AdminPanel({ userName }: { userName: string }) {
     } else flash("error", r.error ?? "Ошибка");
   };
 
+  const filteredBooks = useMemo(() => {
+    const needle = bookQ.trim().toLowerCase();
+    if (!needle) return books;
+    return books.filter(
+      (b) =>
+        b.title.toLowerCase().includes(needle) ||
+        b.subject.toLowerCase().includes(needle) ||
+        b.isbn.toLowerCase().includes(needle)
+    );
+  }, [books, bookQ]);
+
   const studentsByClass = useMemo(() => {
     const map = new Map<string, Student[]>();
     for (const s of students) {
@@ -245,58 +259,34 @@ export default function AdminPanel({ userName }: { userName: string }) {
     return map;
   }, [students]);
 
-  const tabClass = (t: Tab) =>
-    cn(
-      // min-w-max + shrink-0 — в мобильной ленте кнопка не сжимается ниже
-      // контента (текст не ломается), лента скроллится; в сетке (sm+)
-      // разрешаем ячейке растянуться. Кнопки повыше — легче попасть.
-      "flex min-w-max shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-colors sm:min-w-0",
-      tab === t
-        ? "bg-primary text-primary-foreground"
-        : "text-muted-foreground hover:bg-accent"
-    );
-
   return (
-    <main className="min-h-screen">
+    <main className="min-h-dvh">
       <PageHeader
         icon={Layers}
         title="Администратор"
         subtitle="Классы, ученики, каталог и настройки"
         actions={<StaffUser name={userName} />}
+        sticky={false}
       />
 
-      <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-        <StatusBanner
-          status={status}
-          onClear={() => setStatus({ kind: "info", message: null })}
-        />
+      {/* Телефон: одна колонка + нижний док. Планшет: лента разделов
+          сверху. Монитор: панель разделов слева и широкая рабочая область
+          (в две колонки работает «Книги»: список + предпросмотр). */}
+      <div className="safe-x mx-auto w-full max-w-2xl px-4 lg:max-w-[1440px] lg:grid lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:items-start lg:gap-5 lg:px-6 lg:py-5">
+        <div className="lg:sticky lg:top-5">
+          <StaffTabs
+            items={ADMIN_TABS}
+            value={tab}
+            onChange={(id) => setTab(id as Tab)}
+            ariaLabel="Разделы администратора"
+          />
+        </div>
 
-        {/* Мобильный (<sm): горизонтальная лента вкладок без видимого
-            скроллбара (кнопки не сжимались и выезжали за экран).
-            Начиная с sm — сетка по 4: все разделы видны, ничего не уезжает. */}
-        <nav className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible">
-          <button className={tabClass("classes")} onClick={() => setTab("classes")}>
-            <GraduationCap className="h-4 w-4" /> Классы
-          </button>
-          <button className={tabClass("students")} onClick={() => setTab("students")}>
-            <Users className="h-4 w-4" /> Ученики
-          </button>
-          <button className={tabClass("books")} onClick={() => setTab("books")}>
-            <BookOpen className="h-4 w-4" /> Книги
-          </button>
-          <button className={tabClass("links")} onClick={() => setTab("links")}>
-            <KeyRound className="h-4 w-4" /> Ссылки
-          </button>
-          <button className={tabClass("import")} onClick={() => setTab("import")}>
-            <Upload className="h-4 w-4" /> Импорт
-          </button>
-          <button className={tabClass("audit")} onClick={() => setTab("audit")}>
-            <ScrollText className="h-4 w-4" /> Аудит
-          </button>
-          <button className={tabClass("update")} onClick={() => setTab("update")}>
-            <Rocket className="h-4 w-4" /> Обновления
-          </button>
-        </nav>
+        <div className="min-w-0 space-y-4 py-4 pb-28 sm:pb-6 lg:py-0">
+          <StatusBanner
+            status={status}
+            onClear={() => setStatus({ kind: "info", message: null })}
+          />
 
         {tab === "classes" && (
           <div className="space-y-4">
@@ -376,7 +366,10 @@ export default function AdminPanel({ userName }: { userName: string }) {
                             </li>
                           )}
                           {c.books.map((cb) => (
-                            <li key={cb.bookId} className="flex items-center gap-2 p-2.5">
+                            <li key={cb.bookId} className="flex items-center gap-2.5 p-2.5">
+                              {/* Обложка и в списке класса: «какая именно
+                                  книга» угадывается быстрее, чем по названию. */}
+                              <BookCover bookId={cb.bookId} title={cb.book.title} />
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium">{cb.book.title}</p>
                                 <p className="truncate text-xs text-muted-foreground">
@@ -400,7 +393,7 @@ export default function AdminPanel({ userName }: { userName: string }) {
                             onChange={(e) =>
                               setBookToAdd((m) => ({ ...m, [c.id]: e.target.value }))
                             }
-                            className="h-10 flex-1 rounded-md border border-input bg-card px-3 text-sm"
+                            className="h-11 flex-1 rounded-lg border border-input bg-card px-3 text-base"
                           >
                             <option value="">Выбрать учебник…</option>
                             {books
@@ -467,7 +460,7 @@ export default function AdminPanel({ userName }: { userName: string }) {
                       onChange={(e) =>
                         setNewStudent((s) => ({ ...s, classId: e.target.value }))
                       }
-                      className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+                      className="h-11 w-full rounded-lg border border-input bg-card px-3 text-base"
                     >
                       <option value="">Без класса</option>
                       {classList.map((c) => (
@@ -520,46 +513,57 @@ export default function AdminPanel({ userName }: { userName: string }) {
         {tab === "books" && (
           <div className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle>Новый учебник</CardTitle>
+              <CardHeader className="py-3">
+                <CardTitle className="text-base">Новый учебник</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>ISBN (штрихкод с обложки)</Label>
-                  <Input
-                    value={newBook.isbn}
-                    onChange={(e) => setNewBook((b) => ({ ...b, isbn: e.target.value }))}
-                    inputMode="numeric"
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label>Название</Label>
+                    <Label htmlFor="ab-isbn">ISBN (штрихкод с обложки)</Label>
                     <Input
-                      value={newBook.title}
-                      onChange={(e) => setNewBook((b) => ({ ...b, title: e.target.value }))}
-                      placeholder="Математика, 8 класс (Атанасян)"
+                      id="ab-isbn"
+                      value={newBook.isbn}
+                      onChange={(e) => setNewBook((b) => ({ ...b, isbn: e.target.value }))}
+                      inputMode="numeric"
+                      className="h-11"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Предмет</Label>
+                    <Label htmlFor="ab-copies">Экземпляров</Label>
                     <Input
-                      value={newBook.subject}
-                      onChange={(e) => setNewBook((b) => ({ ...b, subject: e.target.value }))}
-                      placeholder="Математика"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Экземпляров</Label>
-                    <Input
+                      id="ab-copies"
                       value={newBook.copies}
                       onChange={(e) => setNewBook((b) => ({ ...b, copies: e.target.value }))}
                       inputMode="numeric"
                       placeholder="1"
+                      className="h-11"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ab-title">Название</Label>
+                    <Input
+                      id="ab-title"
+                      value={newBook.title}
+                      onChange={(e) => setNewBook((b) => ({ ...b, title: e.target.value }))}
+                      placeholder="Математика, 8 класс (Атанасян)"
+                      className="h-11"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ab-subject">Предмет</Label>
+                    <Input
+                      id="ab-subject"
+                      value={newBook.subject}
+                      onChange={(e) => setNewBook((b) => ({ ...b, subject: e.target.value }))}
+                      placeholder="Математика"
+                      className="h-11"
                     />
                   </div>
                 </div>
                 <Button
+                  className="h-11 w-full sm:w-auto"
                   onClick={addBook}
                   disabled={!newBook.isbn.trim() || !newBook.title.trim() || !newBook.subject.trim()}
                 >
@@ -568,58 +572,127 @@ export default function AdminPanel({ userName }: { userName: string }) {
               </CardContent>
             </Card>
 
-            <div className="flex justify-end">
-              <Link href="/print/labels" target="_blank" className="mb-2">
-                <Button variant="secondary" size="sm">
-                  <Printer className="mr-1 h-4 w-4" /> Печать этикеток
-                </Button>
-              </Link>
-            </div>
+            {/* Каталог: список + предпросмотр. На мониторе карточка книги
+                стоит справа и не даёт списку уехать, на телефоне
+                открывается шторкой. */}
+            <div className="space-y-3 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-5">
+              <div className="min-w-0 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[12rem] flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={bookQ}
+                      onChange={(e) => setBookQ(e.target.value)}
+                      placeholder="Фильтр: название, предмет или ISBN…"
+                      aria-label="Фильтр каталога"
+                      className="h-11 pl-9"
+                    />
+                  </div>
+                  <Link href="/print/labels" target="_blank">
+                    <Button variant="secondary" size="sm" className="h-11 px-3">
+                      <Printer className="mr-1 h-4 w-4" /> Этикетки
+                    </Button>
+                  </Link>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Учебников в фильтре: {filteredBooks.length}
+                </p>
 
-            <ul className="divide-y divide-border rounded-lg border border-border bg-card">
-              {books.map((b) => (
-                <li key={b.id} className="flex items-center gap-3 p-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate font-medium">
-                      {b.title}
-                      {b.grade != null ? (
-                        <Badge variant="outline">{b.grade} кл.</Badge>
-                      ) : (
-                        <Badge variant="outline">вне набора</Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {b.subject} · ISBN {b.isbn}
-                      {typeof b.available === "number" &&
-                        ` · в наличии: ${b.available}`}
+                <ul className="cv-rows divide-y divide-border rounded-lg border border-border bg-card">
+                  {filteredBooks.length === 0 && (
+                    <li className="p-4 text-sm text-muted-foreground">
+                      Ничего не найдено.
+                    </li>
+                  )}
+                  {filteredBooks.map((b) => (
+                    <li key={b.id} className="flex items-center gap-2 px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBook(b)}
+                        className={cn(
+                          "flex min-w-0 flex-1 items-center gap-3 rounded-md py-1.5 pl-1 pr-2 text-left transition-colors hover:bg-muted/60",
+                          selectedBook?.id === b.id && "bg-primary/5"
+                        )}
+                      >
+                        <BookCover bookId={b.id} title={b.title} />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium">{b.title}</span>
+                            {b.grade != null ? (
+                              <Badge variant="outline" className="shrink-0">{b.grade} кл.</Badge>
+                            ) : (
+                              <Badge variant="outline" className="shrink-0">вне набора</Badge>
+                            )}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {b.subject} · <span className="font-mono">{b.isbn}</span>
+                            {typeof b.available === "number" &&
+                              ` · в наличии: ${b.available} из ${b.copies ?? 1}`}
+                          </span>
+                        </span>
+                        <Pencil className="hidden h-4 w-4 shrink-0 text-muted-foreground lg:block" />
+                      </button>
+                      <button
+                        onClick={() => deleteBook(b)}
+                        className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Удалить «${b.title}»`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <aside className="hidden lg:sticky lg:top-5 lg:block lg:self-start">
+                {wide && selectedBook ? (
+                  <BookEditor
+                    key={selectedBook.id}
+                    book={selectedBook}
+                    canDelete
+                    onUpdated={(next: BookUpdated) => {
+                      setBooks((list) =>
+                        list.map((x) => (x.id === next.id ? { ...x, ...next } : x))
+                      );
+                      refresh();
+                    }}
+                    onDeleted={() => {
+                      setSelectedBook(null);
+                      refresh();
+                    }}
+                    onClose={undefined}
+                    className="max-h-[calc(100dvh-2.5rem)] overflow-y-auto"
+                  />
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border p-5 text-center">
+                    <p className="text-sm font-medium">Карточка учебника</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Выберите строку слева — можно поправить название,
+                      штрихкод, тираж и набор, загрузить обложку.
                     </p>
                   </div>
-                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    экз.
-                    <input
-                      value={copiesDraft[b.id] ?? String(b.copies ?? 1)}
-                      onChange={(e) =>
-                        setCopiesDraft((m) => ({ ...m, [b.id]: e.target.value }))
-                      }
-                      onBlur={() => saveCopies(b)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                      }}
-                      inputMode="numeric"
-                      className="h-8 w-14 rounded-md border border-input bg-card px-2 text-sm text-foreground"
-                      aria-label={`Тираж: ${b.title}`}
-                    />
-                  </label>
-                  <button
-                    onClick={() => deleteBook(b)}
-                    className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    aria-label="Удалить учебник"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                )}
+              </aside>
+
+              {!wide && selectedBook && (
+                <BookEditor
+                  key={`sheet-${selectedBook.id}`}
+                  book={selectedBook}
+                  canDelete
+                  onUpdated={(next: BookUpdated) => {
+                    setBooks((list) =>
+                      list.map((x) => (x.id === next.id ? { ...x, ...next } : x))
+                    );
+                    refresh();
+                  }}
+                  onDeleted={() => {
+                    setSelectedBook(null);
+                    refresh();
+                  }}
+                  onClose={() => setSelectedBook(null)}
+                />
+              )}
+            </div>
           </div>
         )}
 
@@ -643,6 +716,7 @@ export default function AdminPanel({ userName }: { userName: string }) {
             <UpdateView />
           </Suspense>
         )}
+        </div>
       </div>
     </main>
   );

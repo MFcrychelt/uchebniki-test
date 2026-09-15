@@ -36,7 +36,7 @@ export async function POST(
   void logAudit(
     "classbook.link",
     "classbook",
-    guard.user,
+    me,
     classId,
     { bookId, title: book?.title ?? null, isbn: book?.isbn ?? null }
   );

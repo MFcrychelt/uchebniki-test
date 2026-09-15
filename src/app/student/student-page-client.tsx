@@ -21,17 +21,20 @@ import {
   KeyRound,
   LogOut,
   PenLine,
+  Printer,
   QrCode,
   ScanLine,
   XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { InstallHint } from "@/components/install-hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionTitle } from "@/components/ui/section-title";
+import { LogoMark } from "@/components/ui/logo-mark";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Scanner } from "@/components/scanner";
 import { StatusBanner, type Status } from "@/components/status-banner";
@@ -72,13 +75,14 @@ const REQUEST_LABELS: Record<MyRequest["status"], string> = {
   DECLINED: "Отказано",
 };
 
+/* Цветной левый край + лёгкая подкраска: статус считывается боковым
+   зрением за метр от экрана, а цвета взяты из токенов палитры — они
+   перекрашиваются под тёмную тему, «контраст» и дальтонизм (жёсткие
+   amber/emerald/red — нет). */
 const LOAN_COLORS: Record<string, string> = {
-  ISSUED:
-    "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200",
-  RETURNED:
-    "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200",
-  LOST:
-    "border-red-300 bg-red-50 text-red-900 dark:border-red-700 dark:bg-red-950/40 dark:text-red-200",
+  ISSUED: "border-warning/40 border-l-4 border-l-warning bg-warning/10",
+  RETURNED: "border-success/40 border-l-4 border-l-success bg-success/10",
+  LOST: "border-destructive/40 border-l-4 border-l-destructive bg-destructive/10",
 };
 
 function StudentProfile({ data }: { data: ProfileData }) {
@@ -183,40 +187,59 @@ function StudentProfile({ data }: { data: ProfileData }) {
   const initials = `${student.lastName[0] ?? ""}${student.firstName[0] ?? ""}`.toUpperCase();
 
   return (
-    <div className="space-y-5 pb-10">
-      <Card>
-        <CardContent className="flex flex-col items-center gap-4 p-5">
-          <div className="flex w-full items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
-              {initials}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-lg font-bold leading-tight">
-                {student.lastName} {student.firstName}
-              </p>
-              {student.class && (
-                <p className="text-sm text-muted-foreground">
-                  Класс {student.class.name}
-                </p>
-              )}
-            </div>
+    <div className="space-y-4 pb-10">
+      {/* --- QR ученика: главный жест кабинета ---
+          Экран, который держат перед камерой библиотекаря: крупный код на
+          белом поле (инверсия читается камерой надёжнее, чем код на цветном
+          фоне), имя — чтобы перепроверить «не тот ли это ученик». */}
+      <section className="panel p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="eyebrow text-panel-muted">
+              {student.class ? `Класс ${student.class.name}` : "Личный кабинет"}
+            </p>
+            <p className="mt-1 truncate text-2xl font-extrabold leading-tight">
+              {student.lastName} {student.firstName}
+            </p>
           </div>
-          <div className="rounded-xl border border-border bg-white p-3 shadow-sm">
-            <QRCodeSVG value={qrValue} size={176} level="M" />
-          </div>
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <QrCode className="h-4 w-4 shrink-0" />
-            Покажите этот QR-код библиотекарю
-          </p>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 text-sm font-bold">
+            {initials}
+          </span>
+        </div>
+        <div className="mt-4 flex justify-center rounded-xl bg-white p-3">
+          {/* size задаёт viewBox, а не пиксели: на маленьком телефоне код
+              уменьшится целиком, а не обрежется — сканеру важен контраст,
+              а не «физический» размер в px. */}
+          <QRCodeSVG
+            value={qrValue}
+            size={210}
+            level="M"
+            className="h-auto w-full max-w-[13.5rem]"
+          />
+        </div>
+        <p className="panel-muted mt-3 flex items-center justify-center gap-2 text-center text-sm">
+          <QrCode className="h-4 w-4 shrink-0" aria-hidden />
+          Покажите этот QR-код библиотекарю
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <Link
             href={`/print/qr-cards?qr=${student.qrToken ?? student.id}`}
             target="_blank"
-            className="text-sm font-medium text-primary underline underline-offset-4 hover:opacity-80"
+            rel="noopener"
+            className="panel-field inline-flex min-h-11 flex-1 items-center justify-center gap-2 px-3 text-sm font-semibold transition-colors hover:bg-white/20"
           >
-            Печать моей QR-карточки
+            <Printer className="h-4 w-4" aria-hidden />
+            Печать моей карточки
           </Link>
-        </CardContent>
-      </Card>
+          <CopyButton
+            label="Скопировать ссылку"
+            value={qrValue}
+          />
+        </div>
+        <div className="mt-4">
+          <InstallHint variant="panel" />
+        </div>
+      </section>
 
       <Card className="border-primary/30 bg-primary/5">
         <CardHeader>
@@ -240,11 +263,11 @@ function StudentProfile({ data }: { data: ProfileData }) {
               ).map(([key, label, value]) => (
                 <div
                   key={key}
-                  className="flex items-center justify-between gap-2 rounded-md border border-border bg-white/80 px-3 py-2 dark:bg-card"
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/60 px-3 py-2"
                 >
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="truncate font-mono text-sm font-semibold">
+                    <p className="num truncate text-sm font-semibold">
                       {value}
                     </p>
                   </div>
@@ -291,7 +314,7 @@ function StudentProfile({ data }: { data: ProfileData }) {
             description="Когда библиотекарь выдаст книги, они появятся здесь."
           />
         ) : (
-          <ul className="space-y-2">
+          <ul className="cv-rows space-y-2">
             {issued.map((loan) => (
               <li
                 key={loan.id}
@@ -301,9 +324,9 @@ function StudentProfile({ data }: { data: ProfileData }) {
                   {loan.book?.title ?? "Учебник"}
                 </p>
                 <p className="text-sm opacity-80">
-                  {loan.book?.subject} · ISBN {loan.book?.isbn}
+                  {loan.book?.subject} · <span className="num">ISBN {loan.book?.isbn}</span>
                 </p>
-                <p className="mt-1 text-xs opacity-70">
+                <p className="num mt-1 text-xs opacity-70">
                   Выдан: {new Date(loan.issuedAt).toLocaleDateString("ru-RU")}
                 </p>
               </li>
@@ -351,7 +374,7 @@ function StudentProfile({ data }: { data: ProfileData }) {
                       </p>
                     </div>
                     {isIssued ? (
-                      <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      <span className="shrink-0 rounded-full bg-success/15 px-3 py-1.5 text-xs font-bold text-success">
                         Выдана
                       </span>
                     ) : isPending ? (
@@ -361,7 +384,7 @@ function StudentProfile({ data }: { data: ProfileData }) {
                           cb.book.title
                         )}
                         disabled={reqBusy}
-                        className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+                        className="shrink-0 rounded-full bg-warning/20 px-3 py-1.5 text-xs font-bold text-warning-foreground transition-colors hover:bg-warning/30 disabled:opacity-50"
                         title="Отменить заявку"
                       >
                         Ожидает · отменить
@@ -370,7 +393,7 @@ function StudentProfile({ data }: { data: ProfileData }) {
                       <button
                         onClick={() => requestBook(cb.bookId, cb.book.title)}
                         disabled={reqBusy}
-                        className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        className="shrink-0 rounded-full bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition-colors hover:bg-primary/90 active:scale-[0.985] disabled:opacity-50"
                       >
                         {outOfStock ? "Попросить (ожидание)" : "Попросить"}
                       </button>
@@ -397,12 +420,12 @@ function StudentProfile({ data }: { data: ProfileData }) {
                     </p>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${
                       r.status === "PENDING"
-                        ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                        ? "bg-warning/20 text-warning-foreground"
                         : r.status === "ISSUED"
-                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                          : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                          ? "bg-success/15 text-success"
+                          : "bg-destructive/15 text-destructive"
                     }`}
                   >
                     {REQUEST_LABELS[r.status]}
@@ -453,6 +476,41 @@ function StudentProfile({ data }: { data: ProfileData }) {
         </section>
       )}
     </div>
+  );
+}
+
+/** Копирование значения в буфер: подтверждение показываем на самой кнопке. */
+function CopyButton({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+        } catch {
+          // Буфер обмена недоступен (http, private mode) — оставляем
+          // значение в поле: скопируют вручную.
+          return;
+        }
+        setDone(true);
+        setTimeout(() => setDone(false), 1500);
+      }}
+      className="panel-field inline-flex min-h-11 items-center justify-center gap-2 px-3 text-sm font-semibold transition-colors hover:bg-white/20"
+    >
+      {done ? (
+        <Check className="h-4 w-4" aria-hidden />
+      ) : (
+        <Copy className="h-4 w-4" aria-hidden />
+      )}
+      {done ? "Скопировано" : label}
+    </button>
   );
 }
 
@@ -565,20 +623,29 @@ function StudentLogin({
           {/* Шапка — как у входа персонала на /login: иконка, заголовок,
               подпись. Обе страницы входа выглядят родственными. */}
           <CardHeader className="text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <QrCode className="h-6 w-6 animate-icon-sway" />
-            </div>
-            <CardTitle className="text-xl">Вход в личный кабинет</CardTitle>
+            {/* Тот же живой знак библиотеки, что на входе персонала
+                (halo выключен: плитка стоит на белом, кольцо там не видно). */}
+            <LogoMark
+              size="lg"
+              halo={false}
+              title="Школьная библиотека"
+              className="mx-auto mb-3 bg-panel text-panel-foreground"
+            />
+            <CardTitle className="text-2xl">Вход в личный кабинет</CardTitle>
             <CardDescription>Кабинет ученика</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 p-4">
             <form onSubmit={submitLogin} className="space-y-3">
               <div className="space-y-1">
-                <Label htmlFor="student-login" className="px-3">Логин</Label>
+                <Label htmlFor="student-login" className="eyebrow px-3">
+                  Логин
+                </Label>
                 <Input
                   id="student-login"
+                  name="username"
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
+                  enterKeyHint="next"
                   autoComplete="username"
                   // Логин чувствителен к регистру: гасим автокапитализацию
                   // и автозамену мобильной клавиатуры.
@@ -589,11 +656,15 @@ function StudentLogin({
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="student-password" className="px-3">Пароль</Label>
+                <Label htmlFor="student-password" className="eyebrow px-3">
+                  Пароль
+                </Label>
                 <PasswordInput
                   id="student-password"
+                  name="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  enterKeyHint="go"
                   autoComplete="current-password"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -632,11 +703,10 @@ function StudentLogin({
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
-                  className="h-9"
+                  enterKeyHint="go"
                 />
                 <Button
                   variant="secondary"
-                  size="sm"
                   className="shrink-0"
                   disabled={!manualQr.trim()}
                   onClick={submitManualQr}
@@ -770,7 +840,7 @@ function StudentPageInner({ initialQr }: { initialQr: string | null }) {
   };
 
   return (
-    <main className="flex min-h-screen flex-col">
+    <main className="flex min-h-dvh flex-col">
       <PageHeader
         icon={QrCode}
         title={
@@ -841,7 +911,7 @@ export default function StudentPageClient({
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center">
+        <main className="flex min-h-dvh items-center justify-center">
           <p className="text-muted-foreground">Загрузка…</p>
         </main>
       }

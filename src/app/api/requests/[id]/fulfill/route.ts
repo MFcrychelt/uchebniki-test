@@ -3,7 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { db } from "@/lib/prisma";
 import { staffUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { bookAvailability } from "@/lib/availability";
+import { issueLoan } from "@/lib/loan-writes";
 
 // Выполнить заявку: выдать учебник ученику (создаётся выдача) и закрыть
 // заявку со статусом ISSUED. Если книга уже выдана этому ученику — выдача
@@ -43,41 +43,34 @@ export async function POST(
 
   const now = Temporal.Now.instant();
 
-  // Уже есть активная выдача этой книги этому ученику?
-  const existingLoan = await db.orm.public.Loan
-    .where((l) => l.studentId.eq(student.id))
-    .where((l) => l.bookId.eq(book.id))
-    .where((l) => l.status.eq("ISSUED"))
-    .first();
+  // Выдача — общим атомарным путём (src/lib/loan-writes.ts): дубль, набор
+  // сезона и остаток проверяются внутри одной транзакции под блокировкой
+  // книги. Раньше здесь был тот же «посчитал → записал», и два «Выдать» по
+  // одной заявке (два сотрудника на одном экране заявок) давали две выдачи.
+  const res = await issueLoan({
+    studentId: student.id,
+    bookId: book.id,
+    librarianId: me.id,
+  });
 
   let loanId: string | null = null;
-  if (!existingLoan) {
-    // Учебник не в наборе сезона (архив) — выдать нельзя.
-    const bookRow = await db.orm.public.Book
-      .where({ id: book.id })
-      .first();
-    if (bookRow && bookRow.grade == null) {
-      return NextResponse.json(
-        { error: `«${bookRow.title}» не в наборе этого года — заявку можно отклонить` },
-        { status: 409 }
-      );
-    }
-    // Остались ли экземпляры? Нет — заявку оставляем PENDING: выполним,
-    // когда кто-то вернёт копию.
-    const avail = await bookAvailability(book.id);
-    if (avail.available <= 0) {
-      return NextResponse.json(
-        { error: `Все экземпляры выданы (${avail.total} шт.) — заявка остаётся в очереди` },
-        { status: 409 }
-      );
-    }
-    const loan = await db.orm.public.Loan.create({
-      studentId: student.id,
-      bookId: book.id,
-      librarianId: me.id,
-      status: "ISSUED",
-    });
-    loanId = loan.id;
+  let alreadyIssued = false;
+  if (res.ok) {
+    loanId = (res.loan as { id: string }).id;
+  } else if (res.code === "already_issued") {
+    // Книга уже на руках — заявку просто закрываем, выдачу не удваиваем.
+    alreadyIssued = true;
+  } else if (res.code === "not_in_set") {
+    return NextResponse.json(
+      { error: `${res.error} — заявку можно отклонить` },
+      { status: 409 }
+    );
+  } else {
+    // no_stock: заявку держим в очереди — выполним, когда вернут копию.
+    return NextResponse.json(
+      { error: `${res.error} — заявка остаётся в очереди` },
+      { status: 409 }
+    );
   }
 
   await db.orm.public.BookRequest.where({ id }).update({
@@ -94,7 +87,7 @@ export async function POST(
     {
       student: `${student.lastName} ${student.firstName}`,
       title: book.title,
-      alreadyIssued: Boolean(existingLoan),
+      alreadyIssued,
     }
   );
 
@@ -102,6 +95,6 @@ export async function POST(
     ok: true,
     status: "ISSUED",
     loanId,
-    alreadyIssued: Boolean(existingLoan),
+    alreadyIssued,
   });
 }

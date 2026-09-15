@@ -16,10 +16,12 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       checked={checked}
       onChange={(e) => onCheckedChange?.(e.target.checked)}
       className={cn(
-        "peer h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-sm border border-input bg-card shadow-sm transition-colors",
+        // 24px визуально + вся строка списка кликабельна — попасть пальцем
+        // можно по всей ширине, а не по маленькому квадратику.
+        "checkbox-tick h-6 w-6 shrink-0 cursor-pointer appearance-none rounded-md border-2 border-input bg-card transition-[background-color,border-color]",
         "checked:border-primary checked:bg-primary checked:text-primary-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "disabled:cursor-not-allowed disabled:opacity-50",
+        "disabled:cursor-not-allowed disabled:opacity-40",
         className
       )}
       {...props}

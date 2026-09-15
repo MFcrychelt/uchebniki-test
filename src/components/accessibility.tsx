@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Gauge, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Режимы для пользователей с особенностями зрения:
+ * Режимы отображения (шестерёнка в шапке и на главной).
+ *
+ * Цвета зрения:
  *  - default        — обычные цвета;
  *  - contrast       — повышенная контрастность (тёмнее текст, жирнее
  *                     границы — для слабовидящих);
@@ -16,8 +18,16 @@ import { cn } from "@/lib/utils";
  *  - daltonism-by   — синий/жёлтый не различаются (тританопия):
  *                     статусы разводятся по оранжевый↔пурпурный.
  *
- * Режим ставится атрибутом data-a11y на <html>; палитры описаны в
- * globals.css (переопределение CSS-переменных). Выбор — в localStorage.
+ * Производительность (то же меню, отдельный переключатель):
+ *  - full — обычный вид;
+ *  - lean — «лёгкий режим» для слабых телефонов: ни анимаций, ни теней,
+ *           ни обложек книг (см. [data-perf="lean"] в globals.css).
+ *           На дешёвом Android снимает основную часть перерисовки
+ *           при скролле длинных списков.
+ *
+ * Режим ставится атрибутом data-a11y / data-perf на <html>; палитры
+ * описаны в globals.css. Выбор — в localStorage, применяется
+ * инлайн-скриптом до первой отрисовки (без мигания).
  */
 
 export type A11yMode =
@@ -26,7 +36,12 @@ export type A11yMode =
   | "daltonism-rg"
   | "daltonism-by";
 
-const A11Y_KEY = "uchebniki:a11y";
+export type PerfMode = "full" | "lean";
+
+// Ключи и инлайн-скрипт — в src/lib/init-scripts.ts: их читает ещё и
+// серверный layout, и держать копию здесь значит ловить расхождение
+// разметки на гидрации.
+import { A11Y_KEY, PERF_KEY } from "@/lib/init-scripts";
 
 const isMode = (v: string | null): v is A11yMode =>
   v === "default" ||
@@ -43,8 +58,12 @@ export function applyA11y(mode: A11yMode) {
   }
 }
 
-/** Инлайн-скрипт до первой отрисовки (как у темы — без мигания). */
-export const a11yInitScript = `(function(){try{var m=localStorage.getItem("${A11Y_KEY}");if(m!=="contrast"&&m!=="daltonism-rg"&&m!=="daltonism-by")return;document.documentElement.setAttribute("data-a11y",m);}catch(e){}})();`;
+export function applyPerf(mode: PerfMode) {
+  const el = document.documentElement;
+  if (mode === "lean") el.setAttribute("data-perf", "lean");
+  else el.removeAttribute("data-perf");
+}
+
 
 const MODES: { id: A11yMode; label: string; hint?: string }[] = [
   { id: "default", label: "Обычные цвета" },
@@ -66,10 +85,11 @@ const MODES: { id: A11yMode; label: string; hint?: string }[] = [
 ];
 
 /**
- * Шестерёнка с меню режимов зрения (на главной, под кнопкой темы).
+ * Шестерёнка: режимы для зрения + «лёгкий режим» для слабых устройств.
  */
 export function AccessibilityGear() {
   const [mode, setMode] = useState<A11yMode>("default");
+  const [perf, setPerf] = useState<PerfMode>("full");
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +97,7 @@ export function AccessibilityGear() {
     try {
       const raw = localStorage.getItem(A11Y_KEY);
       if (isMode(raw)) setMode(raw);
+      if (localStorage.getItem(PERF_KEY) === "lean") setPerf("lean");
     } catch {
       // нет localStorage — обычный режим
     }
@@ -90,7 +111,17 @@ export function AccessibilityGear() {
     } catch {
       // private mode — работает, но не запомнится
     }
-    setOpen(false);
+  };
+
+  const togglePerf = () => {
+    const next: PerfMode = perf === "lean" ? "full" : "lean";
+    setPerf(next);
+    applyPerf(next);
+    try {
+      localStorage.setItem(PERF_KEY, next);
+    } catch {
+      // private mode — не запомнится
+    }
   };
 
   // Тап/клик мимо меню — закрыть. pointerdown ловит и палец, и мышь
@@ -106,6 +137,8 @@ export function AccessibilityGear() {
     return () => document.removeEventListener("pointerdown", onDown);
   }, [open]);
 
+  const active = mode !== "default" || perf === "lean";
+
   return (
     <div ref={boxRef} className="relative z-50">
       <button
@@ -115,10 +148,10 @@ export function AccessibilityGear() {
         aria-expanded={open}
         title="Режимы отображения"
         className={cn(
-          "flex h-11 w-11 touch-manipulation items-center justify-center rounded-md transition-colors",
-          mode === "default"
-            ? "text-muted-foreground hover:bg-accent hover:text-foreground"
-            : "bg-accent text-accent-foreground"
+          "flex h-11 w-11 touch-manipulation items-center justify-center rounded-lg transition-colors",
+          active
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground"
         )}
       >
         <Settings2 className="h-5 w-5" />
@@ -127,9 +160,9 @@ export function AccessibilityGear() {
         <div
           role="menu"
           aria-label="Режим отображения"
-          className="absolute right-0 top-12 z-50 w-[min(18rem,calc(100vw-2rem))] rounded-lg border border-border bg-card p-1.5 shadow-lg"
+          className="safe-x absolute right-0 top-12 z-50 w-[min(19rem,calc(100vw-1.5rem))] rounded-xl border border-border bg-card p-1.5 shadow-panel"
         >
-          <p className="px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="eyebrow px-2.5 py-1.5 text-muted-foreground">
             Режим для зрения
           </p>
           {MODES.map((m) => (
@@ -139,7 +172,7 @@ export function AccessibilityGear() {
               aria-checked={mode === m.id}
               onClick={() => choose(m.id)}
               className={cn(
-                "w-full rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                "w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
                 mode === m.id
                   ? "bg-primary text-primary-foreground"
                   : "hover:bg-accent"
@@ -160,6 +193,40 @@ export function AccessibilityGear() {
               )}
             </button>
           ))}
+
+          <div className="my-1.5 h-px bg-border" />
+
+          <button
+            role="menuitemcheckbox"
+            aria-checked={perf === "lean"}
+            onClick={togglePerf}
+            className={cn(
+              "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+              perf === "lean"
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-accent"
+            )}
+          >
+            <Gauge
+              className={cn(
+                "mt-0.5 h-4 w-4 shrink-0",
+                perf === "lean" ? "text-primary-foreground" : "text-muted-foreground"
+              )}
+            />
+            <span className="min-w-0">
+              <span className="block font-medium">Лёгкий режим</span>
+              <span
+                className={cn(
+                  "block text-xs",
+                  perf === "lean"
+                    ? "text-primary-foreground/80"
+                    : "text-muted-foreground"
+                )}
+              >
+                без теней, анимаций и обложек — для слабых телефонов
+              </span>
+            </span>
+          </button>
         </div>
       )}
     </div>

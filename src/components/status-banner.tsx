@@ -35,17 +35,19 @@ export function StatusBanner({ status, onClear, className }: StatusBannerProps) 
     <div
       role="status"
       className={cn(
-        "flex items-start gap-2 rounded-md border px-3 py-2 text-sm",
+        // min-h-11: плашку видно и по пальцу не промахнуться до «×».
+        "flex min-h-11 items-start gap-2 rounded-lg border px-3 py-2 text-sm",
         styles[status.kind],
         className
       )}
     >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       <span className="flex-1 break-words">{status.message}</span>
       {onClear && (
         <button
           onClick={onClear}
-          className="shrink-0 rounded p-0.5 opacity-60 hover:opacity-100"
+          data-tight
+          className="-m-1 shrink-0 rounded p-1.5 opacity-60 transition-opacity hover:opacity-100"
           aria-label="Закрыть"
         >
           <X className="h-4 w-4" />

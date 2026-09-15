@@ -7,6 +7,13 @@ import {
 } from "@/lib/auth";
 import { db } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
+import {
+  RULE_LOGIN_BUDGET,
+  RULE_STAFF_LOGIN,
+  authLimiter,
+  loginKey,
+  tooManyRequests,
+} from "@/lib/rate-limit";
 
 // Вход персонала: { login, password } → сессия в httpOnly-cookie.
 export async function POST(request: Request) {
@@ -26,15 +33,34 @@ export async function POST(request: Request) {
     );
   }
 
+  // Лимиты проверяем ДО проверки пароля, но считаем только неудачу: иначе
+  // успешный вход в начале смены съедал бы бюджет «перебора» у коллег.
+  const budgetKey = "login:staff:budget";
+  const attemptKey = loginKey(request, "staff", login);
+  for (const [key, rule] of [
+    [attemptKey, RULE_STAFF_LOGIN],
+    [budgetKey, RULE_LOGIN_BUDGET],
+  ] as const) {
+    const gate = authLimiter.blocked(key, rule);
+    if (!gate.allowed) return tooManyRequests(gate);
+  }
+
+  const noteFailure = () => {
+    authLimiter.recordFailure(attemptKey, RULE_STAFF_LOGIN);
+    authLimiter.recordFailure(budgetKey, RULE_LOGIN_BUDGET);
+  };
+
   const user = await db.orm.public.User
     .where((u) => u.login.eq(login))
     .first();
 
   // Одна и та же ошибка для «нет такого логина» и «неверный пароль».
   if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    noteFailure();
     return NextResponse.json({ error: "Неверный логин или пароль" }, { status: 401 });
   }
   if (user.role === "STUDENT") {
+    noteFailure();
     return NextResponse.json(
       {
         error:

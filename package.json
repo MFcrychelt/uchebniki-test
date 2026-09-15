@@ -16,8 +16,13 @@
     "test:csv": "node --experimental-strip-types scripts/test-csv.mjs",
     "test:stocktake": "node --experimental-strip-types scripts/test-stocktake.mjs",
     "test:update": "node --experimental-strip-types scripts/test-update.mjs",
-    "test": "npm run test:queue && npm run test:csv && npm run test:stocktake && npm run test:update",
-    "contract:emit": "prisma contract emit"
+    "test:ratelimit": "node --experimental-strip-types scripts/test-rate-limit.mjs",
+    "test:guards": "node --experimental-strip-types scripts/test-api-guards.mjs",
+    "test:crypto": "node --experimental-strip-types scripts/test-password-crypto.mjs",
+    "test:isbn": "node --experimental-strip-types scripts/test-isbn.mjs",
+    "test": "npm run test:queue && npm run test:csv && npm run test:stocktake && npm run test:update && npm run test:ratelimit && npm run test:guards && npm run test:crypto && npm run test:isbn",
+    "contract:emit": "prisma contract emit",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "keywords": [],
   "author": "",

@@ -10,6 +10,26 @@ const revision =
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Заголовок X-Powered-By — лишний байт и подсказка для сканеров.
+  poweredByHeader: false,
+  // Dev-предпросмотр из песочницы/удалённой среды: Next проверяет Origin
+  // HMR-запросов. Список включается ТОЛЬКО когда DEV_ORIGINS задан явно
+  // (в проде и в обычной локальной разработке проверки остаются как были).
+  allowedDevOrigins: (process.env.DEV_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+  compiler: {
+    // removeConsole: production — меньше работы парсеру на слабом
+    // телефоне и никаких console.log в цикле сканирования.
+    removeConsole: process.env.NODE_ENV === "production",
+  },
+  experimental: {
+    // lucide-react тянет иконки из одного «мегамодуля»; эта опция
+    // превращает импорт в точечный и не даёт дереву иконок попасть
+    // в initial-бандл страниц, где они не используются.
+    optimizePackageImports: ["lucide-react"],
+  },
   async headers() {
     return [
       // Cloudflare (и другие обратные прокси) по умолчанию могут кэшировать

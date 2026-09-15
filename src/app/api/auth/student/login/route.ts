@@ -8,6 +8,13 @@ import {
 } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { db } from "@/lib/prisma";
+import {
+  RULE_LOGIN_BUDGET,
+  RULE_STUDENT_LOGIN,
+  authLimiter,
+  loginKey,
+  tooManyRequests,
+} from "@/lib/rate-limit";
 
 // Вход ученика по логину/паролю (система сама их создаёт при импорте
 // класса; логин и пароль видны в кабинете). Сессия — 30 дней.
@@ -28,6 +35,19 @@ export async function POST(request: Request) {
     );
   }
 
+  // Пароль ученику выдаёт система (8 символов с карточки), и промахиваются по
+  // нему часто — порог мягче, чем у персонала, но и он конечен: логин вида
+  // «ivanov-xxxx» перебирается по словарику фамилий.
+  const budgetKey = "login:student:budget";
+  const attemptKey = loginKey(request, "student", login);
+  for (const [key, rule] of [
+    [attemptKey, RULE_STUDENT_LOGIN],
+    [budgetKey, RULE_LOGIN_BUDGET],
+  ] as const) {
+    const gate = authLimiter.blocked(key, rule);
+    if (!gate.allowed) return tooManyRequests(gate);
+  }
+
   const user = await db.orm.public.User
     .where((u) => u.login.eq(login))
     .where((u) => u.role.eq("STUDENT"))
@@ -35,6 +55,8 @@ export async function POST(request: Request) {
 
   // Одна и та же ошибка для «нет такого логина» и «неверный пароль».
   if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    authLimiter.recordFailure(attemptKey, RULE_STUDENT_LOGIN);
+    authLimiter.recordFailure(budgetKey, RULE_LOGIN_BUDGET);
     return NextResponse.json(
       { error: "Неверный логин или пароль" },
       { status: 401 }

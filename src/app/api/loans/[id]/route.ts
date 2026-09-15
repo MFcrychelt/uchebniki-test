@@ -3,6 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { db } from "@/lib/prisma";
 
 import { staffUser } from "@/lib/auth";
+import { closeLoan } from "@/lib/loan-writes";
 
 // Пометить выдачу как утерянную (книга закрыта, ученик «должен» компенсацию).
 export async function PATCH(
@@ -15,19 +16,18 @@ export async function PATCH(
 
   const { id } = await params;
 
-  const loan = await db.orm.public.Loan
-    .where({ id })
-    .where((l) => l.status.eq("ISSUED"))
-    .update({ status: "LOST", lostAt: Temporal.Now.instant() });
-
-  if (!loan) {
+  // Тот же закрывающий путь, что и возврат: перечитать статус внутри
+  // транзакции — значит не перезаписать чужой возврат (404, если уже
+  // закрыто, — семантика прежняя: очередь считает это «сделано»).
+  const res = await closeLoan({ loanId: id, status: "LOST" });
+  if (!res.ok) {
     return NextResponse.json(
-      { error: "Выдача не найдена или уже закрыта" },
-      { status: 404 }
+      { error: res.error, ...(res.code === "not_found" ? {} : { code: res.code }) },
+      { status: res.code === "not_found" ? 404 : 409 }
     );
   }
 
-  return NextResponse.json(loan);
+  return NextResponse.json(res.loan);
 }
 
 // Полное удаление записи (служебное действие администратора).

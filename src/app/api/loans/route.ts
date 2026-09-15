@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Temporal } from "@js-temporal/polyfill";
 import { staffUser } from "@/lib/auth";
 import { db } from "@/lib/prisma";
-import { bookAvailability } from "@/lib/availability";
+import { issueLoan } from "@/lib/loan-writes";
 
 // Выдать книгу ученику.
 export async function POST(request: Request) {
@@ -11,10 +11,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { studentId, bookId } = body;
-  const librarianId = me.id; // аудит: кто произвёл выдачу
-
+  let body: { studentId?: string; bookId?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректные данные" }, { status: 400 });
+  }
+  const studentId = body.studentId;
+  const bookId = body.bookId;
   if (!studentId || !bookId) {
     return NextResponse.json(
       { error: "Нужны studentId и bookId" },
@@ -22,46 +26,24 @@ export async function POST(request: Request) {
     );
   }
 
-  // Уже есть активная выдача этой книги этому ученику?
-  const existing = await db.orm.public.Loan
-    .where((l) => l.studentId.eq(studentId))
-    .where((l) => l.bookId.eq(bookId))
-    .where((l) => l.status.eq("ISSUED"))
-    .first();
-
-  if (existing) {
-    return NextResponse.json(
-      { error: "Книга уже выдана" },
-      { status: 409 }
-    );
-  }
-
-  // Учебник должен быть в каком-нибудь наборе сезона (не в архиве).
-  const book = await db.orm.public.Book.where({ id: bookId }).first();
-  if (book && book.grade == null) {
-    return NextResponse.json(
-      { error: `«${book.title}» не в наборе этого года` },
-      { status: 409 }
-    );
-  }
-
-  // Остались ли экземпляры в фонде?
-  const avail = await bookAvailability(bookId);
-  if (avail.available <= 0) {
-    return NextResponse.json(
-      { error: `Все экземпляры книги выданы (${avail.total} шт.)` },
-      { status: 409 }
-    );
-  }
-
-  const loan = await db.orm.public.Loan.create({
+  // Проверки и запись — в src/lib/loan-writes.ts: одна транзакция под
+  // блокировкой книги. Раньше это было «посчитал → записал» без защиты, и
+  // две параллельные выдачи (две вкладки, второе устройство, офлайн-очередь)
+  // проходили проверку остатка обе.
+  const res = await issueLoan({
     studentId,
     bookId,
-    librarianId: librarianId ?? null,
-    status: "ISSUED",
+    librarianId: me.id, // аудит: кто произвёл выдачу
   });
 
-  return NextResponse.json(loan, { status: 201 });
+  if (!res.ok) {
+    return NextResponse.json(
+      { error: res.error, code: res.code },
+      { status: 409 }
+    );
+  }
+
+  return NextResponse.json(res.loan, { status: 201 });
 }
 
 // Журнал выдач: все операции с фильтрами.

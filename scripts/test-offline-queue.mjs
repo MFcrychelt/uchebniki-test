@@ -96,5 +96,40 @@ console.log("6. opRequest — маппинг на HTTP");
   ok(r4.method === "DELETE" && r4.url === "/api/loans/l9", "delete-loan → DELETE /api/loans/:id");
 }
 
+console.log("7. 409 по смыслу: «уже сделано» вынимаем, отказ оставляем");
+{
+  // no_stock / not_in_set — это НЕ «сервер уже обработал»: выдачи нет.
+  const q = [op("issue", { studentId: "s1", bookId: "b1" }), op("issue", { studentId: "s2", bookId: "b1" })];
+  const s = await runQueueSync(q, async () => ({
+    status: 409,
+    code: "no_stock",
+    error: "Все экземпляры книги выданы (3 шт.)",
+  }));
+  ok(q.length === 2, "обе операции остались в очереди");
+  ok(s.resolved === 0 && s.failed === 2, "не «выполнено», а конфликт");
+  ok(q[0].lastError === "Все экземпляры книги выданы (3 шт.)", "причина сохранена для панели");
+
+  // 5 прогонов — заморозка с той же причиной (не молча).
+  for (let i = 0; i < 4; i++) {
+    await runQueueSync(q, async () => ({ status: 409, code: "no_stock", error: "нет книг" }));
+  }
+  ok(q.every((o) => o.status === "frozen"), "после 5 попыток заморожены");
+}
+{
+  const q = [op("return", { loanId: "l1" }), op("issue", { studentId: "s", bookId: "b" })];
+  let i = 0;
+  const s = await runQueueSync(q, async () => ({
+    status: 409,
+    code: ["already_closed", "already_issued"][i++],
+  }));
+  ok(q.length === 0 && s.resolved === 2, "идемпотентные коды → вынимаем");
+}
+{
+  // Обратная совместимость: 409 без кода (старые/чужие роуты) — как раньше.
+  const q = [op("lost", { loanId: "l1" })];
+  const s = await runQueueSync(q, async () => ({ status: 409 }));
+  ok(q.length === 0 && s.resolved === 1, "409 без code → считаем обработанным");
+}
+
 console.log(`\n${passed} прошло, ${failed} упало`);
 process.exit(failed === 0 ? 0 : 1);

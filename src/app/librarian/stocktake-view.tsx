@@ -61,7 +61,8 @@ export default function StocktakeView() {
     setStatus({ kind, message });
 
   useEffect(() => {
-    fetch("/api/classes").then((r) => r.ok && r.json()).then(setClasses).catch(() => {});
+    // см. debts-view: false вместо [] ронял бы classes.find/classes.map
+    fetch("/api/classes").then((r) => (r.ok ? r.json() : [])).then(setClasses).catch(() => {});
   }, []);
 
   const currentKey = `${session.classId ?? ""}|${session.scans.length}`;
@@ -181,7 +182,7 @@ export default function StocktakeView() {
               onChange={(e) =>
                 persist({ ...session, classId: e.target.value || null })
               }
-              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 rounded-lg border border-input bg-card px-2 text-base"
             >
               <option value="">Вся библиотека</option>
               {classes.map((c) => (
@@ -205,7 +206,7 @@ export default function StocktakeView() {
                 value={manual}
                 onChange={(e) => setManual(e.target.value)}
                 placeholder="Ввести ISBN вручную"
-                className="h-9 w-44 rounded-md border border-input bg-card px-2 text-sm"
+                className="h-11 w-44 rounded-lg border border-input bg-card px-2 text-base"
               />
               <Button size="sm" type="submit" variant="secondary">
                 +

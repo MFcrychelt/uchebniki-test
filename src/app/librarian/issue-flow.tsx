@@ -7,6 +7,8 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { tap } from "@/lib/haptics";
 import {
   Card,
   CardContent,
@@ -21,6 +23,7 @@ import { Scanner } from "@/components/scanner";
 import { StatusBanner, type Status } from "@/components/status-banner";
 import { BOOK_FORMATS, QR_FORMATS } from "@/lib/scanner-formats";
 import { extractQrToken } from "@/lib/qr-token";
+import { sameIsbn } from "@/lib/isbn";
 import {
   enqueueOp,
   makeOp,
@@ -39,9 +42,36 @@ interface ProfileData {
   >;
 }
 
+/**
+ * Чем открыть профиль: личный QR-токен (карточка или телефон ученика) либо
+ * id ученика — путь для случая «карточки не печатали / потерял», когда
+ * выдача идёт по списку класса. id принимает только staff-роут
+ * /api/student/:id, поэтому путать их опасно нечем.
+ */
+type ProfileRef = { kind: "token" | "id"; value: string };
+
+/** Ответ /api/loans/bulk — счётчики и то, что не выдалось. */
+interface BulkResult {
+  created: number;
+  already: number;
+  noStock: number;
+  notInSet: number;
+  total: number;
+  students: number;
+  books: number;
+  exceptionsTotal: number;
+  exceptions: {
+    studentId: string;
+    studentName: string;
+    bookId: string;
+    bookTitle: string;
+    reason: "already" | "no_stock" | "not_in_set";
+  }[];
+}
+
 /** Недавние ученики: вернуться к прошлому профилю одним тапом. */
 interface RecentStudent {
-  token: string;
+  ref: ProfileRef;
   name: string;
   className: string | null;
 }
@@ -54,7 +84,23 @@ function readRecent(): RecentStudent[] {
     const raw = localStorage.getItem(RECENT_KEY);
     if (!raw) return [];
     const v = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x) => x && typeof x.token === "string") : [];
+    if (!Array.isArray(v)) return [];
+    // Записи прежней версии лежали по одному полю token — мигрируем на месте,
+    // чтобы список «Недавних» не обнулился из-за смены формата.
+    return v
+      .map((x): RecentStudent | null => {
+        if (!x || typeof x !== "object") return null;
+        const o = x as { ref?: ProfileRef; token?: string; name?: string; className?: string | null };
+        const ref: ProfileRef | null =
+          o.ref && typeof o.ref.value === "string"
+            ? o.ref
+            : typeof o.token === "string"
+              ? { kind: "token", value: o.token }
+              : null;
+        if (!ref || typeof o.name !== "string") return null;
+        return { ref, name: o.name, className: o.className ?? null };
+      })
+      .filter((x): x is RecentStudent => x !== null);
   } catch {
     return [];
   }
@@ -62,14 +108,26 @@ function readRecent(): RecentStudent[] {
 
 function rememberRecent(item: RecentStudent) {
   try {
-    const rest = readRecent().filter((x) => x.token !== item.token);
+    const key = (r: ProfileRef) => `${r.kind}:${r.value}`;
+    const rest = readRecent().filter((x) => key(x.ref) !== key(item.ref));
     localStorage.setItem(RECENT_KEY, JSON.stringify([item, ...rest].slice(0, RECENT_MAX)));
   } catch {
     // private mode — не критично
   }
 }
 
-export default function IssueFlow() {
+/**
+ * `scanNonce` > 0 — внешний запрос «сразу открыть камеру» (кнопка «Скан» в
+ * нижнем доке: с любой вкладки один тап до сканера). Отработали — просим
+ * сбросить счётчик, чтобы возврат на вкладку «Выдача» камеру не включал.
+ */
+export default function IssueFlow({
+  scanNonce = 0,
+  onScanConsumed,
+}: {
+  scanNonce?: number;
+  onScanConsumed?: () => void;
+} = {}) {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [scanningQr, setScanningQr] = useState(false);
   const [scanningBook, setScanningBook] = useState(false);
@@ -92,6 +150,9 @@ export default function IssueFlow() {
     { id: string; lastName: string; firstName: string; qrToken: string | null }[]
   >([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
+  // «Весь класс пришёл»: выдача набором всем сразу (один запрос на Bulk).
+  const [classBusy, setClassBusy] = useState(false);
+  const [classResult, setClassResult] = useState<BulkResult | null>(null);
   // Журнал непрерывного скана ISBN: последние отсканированные книги.
   const [scanLog, setScanLog] = useState<{ title: string; ok: boolean; note?: string }[]>([]);
   const [status, setStatus] = useState<Status>({ kind: "info", message: null });
@@ -103,8 +164,12 @@ export default function IssueFlow() {
   );
 
   const loadProfile = useCallback(
-    async (token: string) => {
-      const res = await fetch(`/api/student/qr/${encodeURIComponent(token)}`);
+    async (ref: ProfileRef) => {
+      const url =
+        ref.kind === "token"
+          ? `/api/student/qr/${encodeURIComponent(ref.value)}`
+          : `/api/student/${encodeURIComponent(ref.value)}?profile=1`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Ученик не найден");
       const data = (await res.json()) as ProfileData;
       setProfile(data);
@@ -113,18 +178,19 @@ export default function IssueFlow() {
       flash("success", `Профиль: ${data.student.lastName} ${data.student.firstName}`);
       // Запоминаем для «Недавних» — вернуться одним тапом.
       const item: RecentStudent = {
-        token,
+        ref,
         name: `${data.student.lastName} ${data.student.firstName}`,
         className: data.student.class?.name ?? null,
       };
       rememberRecent(item);
-      setRecent((prev) => [item, ...prev.filter((x) => x.token !== token)].slice(0, RECENT_MAX));
+      const same = (r: ProfileRef) => r.kind === ref.kind && r.value === ref.value;
+      setRecent((prev) => [item, ...prev.filter((x) => !same(x.ref))].slice(0, RECENT_MAX));
     },
     [flash]
   );
 
   const openByToken = (token: string) => {
-    loadProfile(token).catch((e: Error) =>
+    loadProfile({ kind: "token", value: token }).catch((e: Error) =>
       flash("error", e.message === "Ученик не найден"
         ? `Ученик с кодом не найден: ${token}`
         : "Ошибка сети")
@@ -151,22 +217,34 @@ export default function IssueFlow() {
   };
 
   // После синхронизации офлайн-очереди профиль мог измениться — перечитываем.
+  // Всегда по id (staff-роут): раньше здесь подставлялся qrToken, и у ученика
+  // без карточки получался запрос /api/student/qr/null → профиль молча
+  // оставался устаревшим («0 из 11» после «Выдать всё»).
   useEffect(() => {
-    const token = profile?.student.qrToken ?? profile?.student.id;
-    if (!token) return;
+    const id = profile?.student.id;
+    if (!id) return;
     const reload = () =>
-      fetch(`/api/student/qr/${encodeURIComponent(token)}`)
+      fetch(`/api/student/${encodeURIComponent(id)}?profile=1`)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => data && setProfile(data))
         .catch(() => {});
     window.addEventListener(DATA_CHANGED_EVENT, reload);
     return () => window.removeEventListener(DATA_CHANGED_EVENT, reload);
-  }, [profile?.student.qrToken, profile?.student.id]);
+  }, [profile?.student.id]);
 
   // Недавние ученики — из localStorage при первом рендере.
   useEffect(() => {
     setRecent(readRecent());
   }, []);
+
+  // Запуск сканера из дока: если профиль уже открыт, не вмешиваемся —
+  // человек посреди выдачи, и камера поверх чек-листа была бы ловушкой.
+  useEffect(() => {
+    if (!scanNonce) return;
+    if (!profile && !picking) setScanningQr(true);
+    onScanConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanNonce]);
 
   // --- Выбор ученика из класса (карточка забыта/потеряна) ---
   const openPicker = () => {
@@ -182,6 +260,7 @@ export default function IssueFlow() {
   const pickClass = (classId: string) => {
     setPickedClassId(classId);
     setClassStudents([]);
+    setClassResult(null);
     if (!classId) return;
     setStudentsLoading(true);
     fetch(`/api/students?classId=${encodeURIComponent(classId)}`)
@@ -200,12 +279,63 @@ export default function IssueFlow() {
       .finally(() => setStudentsLoading(false));
   };
 
+  /**
+   * Выдача набора всему классу. QR-коды здесь не нужны в принципе: нарядом
+   * служит список класса, а книги физически лежат перед сотрудником. Сервер
+   * пропускает тех, кому уже выдано, и отдаёт список исключений — их правят
+   * построчно. Офлайна не касается: пачка требует связи (одиночные выдачи в
+   * очередь при обрыве пишутся как раньше).
+   */
+  const issueToClass = async () => {
+    if (!pickedClassId || classBusy || classStudents.length === 0) return;
+    if (
+      !confirm(
+        `Выдать набор класса всем ученикам (${classStudents.length} чел.)?\n` +
+          "Кому уже выдано — пропустим; там, где книги кончились — покажем списком."
+      )
+    )
+      return;
+    setClassBusy(true);
+    setClassResult(null);
+    try {
+      const res = await fetch("/api/loans/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId: pickedClassId }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | (BulkResult & { error?: string })
+        | null;
+      if (!res.ok || !data) {
+        flash("error", data?.error || "Не удалось выдать классу");
+        return;
+      }
+      setClassResult(data);
+      flash("success", `Классу выдано учебников: ${data.created}.`);
+      tap(12);
+      // Если профиль кого-то из этого класса открыт — обновляем его.
+      if (profile) {
+        const fresh = await fetch(
+          `/api/student/${encodeURIComponent(profile.student.id)}?profile=1`
+        );
+        if (fresh.ok) setProfile((await fresh.json()) as ProfileData);
+      }
+    } catch {
+      flash(
+        "error",
+        "Нет сети: выдача на весь класс требует связи. По одному ученику офлайн работает."
+      );
+    } finally {
+      setClassBusy(false);
+    }
+  };
+
   const activeLoanFor = (bookId: string) =>
     profile?.loans.find((l) => l.bookId === bookId && l.status === "ISSUED");
 
   const issueBook = async (
     bookId: string
-  ): Promise<Loan | "queued" | "dup" | "nostock" | null> => {
+  ): Promise<Loan | "queued" | "dup" | "nostock" | "notInSet" | null> => {
     if (!profile) return null;
     const book = profile.classBooks.find((cb) => cb.bookId === bookId)?.book;
     let res: Response;
@@ -228,14 +358,22 @@ export default function IssueFlow() {
       return "queued";
     }
     if (res.status === 409) {
-      const json = await res.json().catch(() => null);
-      const msg =
-        json && typeof json === "object" && "error" in json
-          ? String((json as { error: unknown }).error)
-          : "";
-      if (msg.includes("экземпляры")) {
+      const json = (await res.json().catch(() => null)) as
+        | { error?: unknown; code?: unknown }
+        | null;
+      const msg = typeof json?.error === "string" ? json.error : "";
+      const code = typeof json?.code === "string" ? json.code : "";
+      // Разбор по machine-readable коду: по одному лишь 409 было непонятно,
+      // «уже выдано» это или отказ, и оптимистичная галочка оставалась
+      // отмеченной там, где выдача не создалась.
+      const noStock = code === "no_stock" || (!code && msg.includes("экземпляры"));
+      if (noStock) {
         flash("error", `«${book?.title ?? "Книга"}»: ${msg}`);
         return "nostock";
+      }
+      if (code === "not_in_set") {
+        flash("error", `«${book?.title ?? "Книга"}»: ${msg || "не в наборе этого года"}`);
+        return "notInSet";
       }
       flash("info", msg || "Эта книга уже выдана.");
       return "dup";
@@ -303,6 +441,9 @@ export default function IssueFlow() {
               ],
             }
     );
+    // Тактильный отклик сразу (оптимистично): «галочка нажата» чувствуется
+    // пальцем, а не вычитывается глазами из списка.
+    tap(active ? 5 : 12);
     setPending((s) => new Set(s).add(bookId));
     try {
       if (active) {
@@ -325,8 +466,8 @@ export default function IssueFlow() {
           flash("info", `«${book?.title}» уже выдана.`);
           return;
         }
-        if (created === "nostock") {
-          setProfile(prev); // нет экземпляров: откат
+        if (created === "nostock" || created === "notInSet") {
+          setProfile(prev); // отказ сервера: галочка не должна остаться
           return;
         }
         if (created) {
@@ -363,11 +504,13 @@ export default function IssueFlow() {
       flash("info", "Это QR-код ученика — используйте кнопку «Сканировать QR».");
       return;
     }
-    const cb = profile.classBooks.find(
-      (b) => b.book.isbn.replace(/-/g, "") === clean.replace(/-/g, "")
-    );
+    // Сверка через формы ISBN, а не через точное совпадение строк: скан
+    // EAN-13 обязан находить издание, заведённое в каталоге по 10-значному
+    // ISBN (старые переиздания печатают его на обложке), и наоборот.
+    const cb = profile.classBooks.find((b) => sameIsbn(b.book.isbn, clean));
     if (!cb) {
       flash("error", `ISBN ${clean} не входит в список учебников этого класса.`);
+      tap([8, 40, 8]); // «не тот штрихкод» ощущается, не читается
       logScan(`ISBN ${clean}`, false, "не из списка класса");
       return;
     }
@@ -395,10 +538,16 @@ export default function IssueFlow() {
         setManualIsbn("");
         return;
       }
+      if (created === "notInSet") {
+        logScan(cb.book.title, false, "не в наборе года");
+        setManualIsbn("");
+        return;
+      }
       if (created) {
         setProfile((p) => (p ? { ...p, loans: [created, ...p.loans] } : p));
         flash("success", `«${cb.book.title}» выдана.`);
         logScan(cb.book.title, true, "выдана");
+        tap(12);
       }
     } catch (e) {
       flash("error", e instanceof Error ? e.message : "Ошибка");
@@ -409,52 +558,75 @@ export default function IssueFlow() {
     }
   };
 
+  /**
+   * «Выдать всё» — ОДИН запрос на /api/loans/bulk. Цикл по книгам стоил
+   * round-trip на каждый учебник (11 на человека, 275 на класс), а на слабом
+   * школьном сервере ещё и шанс поймать оборванный ответ посреди пачки.
+   * В офлайне путь прежний — по одной операции в очередь: очередь умеет
+   * только одиночные выдачи, и они хотя бы не теряются (см. offline-queue).
+   */
   const issueAll = async () => {
     if (!profile || busy) return;
+    const missing = profile.classBooks.filter((cb) => !activeLoanFor(cb.bookId));
+    if (missing.length === 0) {
+      flash("info", "Все учебники уже выданы.");
+      return;
+    }
     setBusy(true);
+
+    let res: Response | null = null;
     try {
-      const missing = profile.classBooks.filter(
-        (cb) => !activeLoanFor(cb.bookId)
+      res = await fetch("/api/loans/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentIds: [profile.student.id],
+          bookIds: missing.map((cb) => cb.bookId),
+        }),
+      });
+    } catch {
+      res = null; // сети нет: запрос до сервера не дошёл
+    }
+
+    if (!res) {
+      let queued = 0;
+      for (const cb of missing) {
+        if ((await issueBook(cb.bookId)) === "queued") queued++;
+      }
+      flash(
+        "info",
+        `Нет сети: ${queued} операций сохранены — отправим при соединении.`
       );
-      if (missing.length === 0) {
-        flash("info", "Все учебники уже выданы.");
+      setBusy(false);
+      return;
+    }
+
+    try {
+      const data = (await res.json().catch(() => null)) as
+        | (BulkResult & { error?: string })
+        | null;
+      if (!res.ok || !data) {
+        flash("error", data?.error || "Не удалось выдать учебники");
         return;
       }
-      let failed = 0;
-      let queued = 0;
-      let dup = 0;
-      let nostock = 0;
-      for (const cb of missing) {
-        try {
-          const r = await issueBook(cb.bookId);
-          if (r === "queued") queued++;
-          else if (r === "dup") dup++;
-          else if (r === "nostock") nostock++;
-        } catch {
-          failed++;
-        }
-      }
-      // Перечитываем профиль после пакетной выдачи (если сеть есть).
-      if (queued === 0) {
-        const res = await fetch(
-          `/api/student/qr/${encodeURIComponent(profile.student.qrToken!)}`
-        );
-        if (res.ok) setProfile(await res.json());
-      }
-      const issued = missing.length - failed - queued - dup - nostock;
+      const fresh = await fetch(
+        `/api/student/${encodeURIComponent(profile.student.id)}?profile=1`
+      );
+      if (fresh.ok) setProfile((await fresh.json()) as ProfileData);
       const parts: string[] = [];
-      if (issued > 0) parts.push(`выдано ${issued}`);
-      if (nostock > 0) parts.push(`нет в наличии: ${nostock}`);
-      if (dup > 0) parts.push(`уже выданы: ${dup}`);
-      if (failed > 0) parts.push(`ошибок: ${failed}`);
-      if (queued > 0) parts.push(`в очереди (нет сети): ${queued}`);
-      if (failed === 0 && queued === 0 && dup === 0 && nostock === 0) {
-        flash("success", `Выдано учебников: ${missing.length}.`);
-      } else if (failed > 0 || nostock > 0) {
-        flash("error", `Выданы не все книги (${parts.join(", ")}).`);
+      if (data.noStock > 0) parts.push(`нет в наличии: ${data.noStock}`);
+      if (data.notInSet > 0) parts.push(`не в наборе года: ${data.notInSet}`);
+      if (data.already > 0) parts.push(`уже выданы: ${data.already}`);
+      if (parts.length === 0) {
+        flash("success", `Выдано учебников: ${data.created}.`);
+        tap(12);
+      } else if (data.created > 0) {
+        flash("info", `Выдано ${data.created}, ${parts.join(", ")}.`);
       } else {
-        flash("info", parts.join(", "));
+        flash("error", `Не выдано ничего (${parts.join(", ")}).`);
       }
+    } catch (e) {
+      flash("error", e instanceof Error ? e.message : "Ошибка");
     } finally {
       setBusy(false);
     }
@@ -493,19 +665,23 @@ export default function IssueFlow() {
             {/* Выбор ученика из класса — когда карточка забыта или
                 потеряна: класс → фамилия → профиль. Без QR. */}
             <CardHeader className="flex-row items-center justify-between space-y-0">
-              <CardTitle>Выбор ученика из класса</CardTitle>
+              <CardTitle className="text-lg">Выдача на класс</CardTitle>
               <button
                 onClick={() => setPicking(false)}
-                className="rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="rounded-lg px-3 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 Назад
               </button>
             </CardHeader>
             <CardContent className="space-y-3">
+              <label htmlFor="pick-class" className="eyebrow block text-muted-foreground">
+                Класс
+              </label>
               <select
+                id="pick-class"
                 value={pickedClassId}
                 onChange={(e) => pickClass(e.target.value)}
-                className="h-11 w-full rounded-md border border-input bg-card px-2 text-base"
+                className="h-11 w-full rounded-lg border border-input bg-card px-3 text-base"
               >
                 <option value="">Выберите класс…</option>
                 {classes.map((c) => (
@@ -523,235 +699,345 @@ export default function IssueFlow() {
                 </p>
               )}
               {classStudents.length > 0 && (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {classStudents
-                    .filter((s) => s.qrToken)
-                    .map((s) => (
+                <>
+                  {/* Без .filter(s => s.qrToken): раньше «карточки не
+                      печатали» означало «выбрать некого», хотя это ровно тот
+                      случай, когда список класса и есть путь к выдаче.
+                      Ученик без карточки открывается по id (staff-роут). */}
+                  <div className="cv-rows grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {classStudents.map((s) => (
                       <Button
                         key={s.id}
                         variant="outline"
-                        className="h-11 justify-start"
-                        onClick={() => openByToken(s.qrToken!)}
+                        className="h-11 justify-between gap-2"
+                        onClick={() =>
+                          loadProfile(
+                            s.qrToken
+                              ? { kind: "token", value: s.qrToken }
+                              : { kind: "id", value: s.id }
+                          ).catch(() =>
+                            flash("error", "Не удалось открыть ученика")
+                          )
+                        }
                       >
-                        {s.lastName} {s.firstName}
+                        <span className="truncate">
+                          {s.lastName} {s.firstName}
+                        </span>
+                        {!s.qrToken && (
+                          <span className="num shrink-0 text-[11px] text-muted-foreground">
+                            без карточки
+                          </span>
+                        )}
                       </Button>
                     ))}
-                </div>
+                  </div>
+
+                  <div className="border-t border-border pt-3">
+                    <Button
+                      variant="outline"
+                      className="min-h-11 w-full"
+                      disabled={classBusy}
+                      onClick={issueToClass}
+                    >
+                      <CheckCheck className="mr-2 h-4 w-4" />
+                      {classBusy
+                        ? "Выдаю набор всему классу…"
+                        : `Выдать набор всему классу (${classStudents.length})`}
+                    </Button>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Учебники по списку класса, без сканирования: кому уже
+                      выдано — пропустим, чего не хватило — покажем списком.
+                    </p>
+
+                    {classResult && (
+                      <div className="mt-2 rounded-md border border-input bg-muted/40 p-3">
+                        <p className="text-sm font-semibold">
+                          Выдано {classResult.created} строк из{" "}
+                          {classResult.total}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {[
+                            classResult.already > 0 &&
+                              `уже было выдано: ${classResult.already}`,
+                            classResult.noStock > 0 &&
+                              `не хватило экземпляров: ${classResult.noStock}`,
+                            classResult.notInSet > 0 &&
+                              `вне набора года: ${classResult.notInSet}`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "замечаний нет"}
+                        </p>
+                        {classResult.exceptions.length > 0 && (
+                          <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                            {classResult.exceptions.map((e, i) => (
+                              <li
+                                key={`${e.studentId}-${e.bookId}-${i}`}
+                                className="flex items-baseline gap-2 text-xs"
+                              >
+                                <span className="min-w-0 flex-1 truncate font-medium">
+                                  {e.studentName}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                                  {e.bookTitle}
+                                </span>
+                                <span className="num shrink-0 text-destructive">
+                                  {e.reason === "no_stock"
+                                    ? "нет в наличии"
+                                    : "не в наборе"}
+                                </span>
+                              </li>
+                            ))}
+                            {classResult.exceptionsTotal >
+                              classResult.exceptions.length && (
+                              <li className="text-xs text-muted-foreground">
+                                …и ещё{" "}
+                                {classResult.exceptionsTotal -
+                                  classResult.exceptions.length}
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
         )}
 
         {!profile && !scanningQr && !picking && (
-          <Card>
+          <section className="panel p-5 sm:p-7">
+            <div className="flex items-center justify-between gap-3">
+              <span className="eyebrow text-panel-muted">Рабочий экран</span>
+              <span className="num text-sm text-panel-muted">3 шага</span>
+            </div>
             {/* Пустой экран — это инструкция: пожилому сотруднику нужно
                 видеть ВСЮ последовательность сразу, а не одну кнопку. */}
-            <CardContent className="flex flex-col gap-5 p-6 sm:p-8">
-              <div className="text-center">
-                <p className="text-lg font-semibold">Выдача учебников</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Три шага — на каждого ученика
-                </p>
-              </div>
-              <ol className="space-y-3">
-                {[
-                  "Отсканируйте QR-код ученика — с его карточки или телефона",
-                  "Отметьте учебники, которые отдаёте (или нажмите «Выдать всё»)",
-                  "Нажмите «Следующий ученик» внизу",
-                ].map((text, i) => (
-                  <li key={i} className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-primary-foreground">
-                      {i + 1}
-                    </span>
-                    <span className="text-sm sm:text-base">{text}</span>
-                  </li>
-                ))}
-              </ol>
-              <Button size="lg" className="h-12 w-full text-base" onClick={() => setScanningQr(true)}>
-                <ScanLine className="mr-2 h-6 w-6" /> Сканировать QR-код ученика
-              </Button>
-
-              {/* Быстрые пути без скана: недавние ученики и выбор из
-                  класса — на случай «забыл карточку». */}
-              <div className="space-y-2">
-                {recent.length > 0 && (
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Недавние
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {recent.map((r) => (
-                        <button
-                          key={r.token}
-                          onClick={() => openByToken(r.token)}
-                          className="inline-flex h-10 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-sm font-medium transition-colors hover:bg-accent"
-                        >
-                          {r.name}
-                          {r.className && (
-                            <span className="text-xs text-muted-foreground">
-                              {r.className}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="h-11 w-full"
-                  onClick={openPicker}
+            <h2 className="mt-3 text-[1.6rem] leading-[1.2] sm:text-[1.9rem]">
+              Выдача учебников
+            </h2>
+            <ol className="mt-5 space-y-2">
+              {[
+                "Отсканируйте QR-код ученика — с его карточки или телефона",
+                "Отметьте учебники, которые отдаёте (или «Выдать всё»)",
+                "Нажмите «Следующий ученик» внизу",
+              ].map((text, i) => (
+                <li
+                  key={i}
+                  className="panel-field flex items-center gap-3 p-3.5"
                 >
-                  <Users className="mr-2 h-5 w-5" /> Нет карточки — выбрать из класса
-                </Button>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="h-px flex-1 bg-border" />
-                  <span className="text-xs text-muted-foreground">
-                    нет камеры — введите код с карточки
+                  <span className="num flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 text-sm font-bold">
+                    {String(i + 1).padStart(2, "0")}
                   </span>
-                  <div className="h-px flex-1 bg-border" />
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={manualQr}
-                    onChange={(e) => setManualQr(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && submitManualQr()}
-                    placeholder="Код с карточки ученика"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="h-11"
-                  />
-                  <Button
-                    variant="secondary"
-                    className="h-11 shrink-0"
-                    disabled={!manualQr.trim()}
-                    onClick={submitManualQr}
-                  >
-                    Открыть
-                  </Button>
+                  <span className="text-sm leading-snug sm:text-base">{text}</span>
+                </li>
+              ))}
+            </ol>
+            {/* Обычное начертание вместо CAPS-«кричалки»: главный жест и
+                так самый крупный на экране, а читается строка короче. */}
+            <Button
+              size="lg"
+              variant="hero"
+              className="mt-5 w-full"
+              onClick={() => setScanningQr(true)}
+            >
+              <ScanLine className="mr-2 h-5 w-5" />
+              Сканировать QR ученика
+            </Button>
+
+            {/* Быстрые пути без скана: недавние ученики и выбор из
+                класса — на случай «забыл карточку». */}
+            {recent.length > 0 && (
+              <div className="mt-5">
+                <p className="eyebrow mb-2 text-panel-muted">Недавние</p>
+                <div className="flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {recent.map((r) => (
+                    <button
+                      key={`${r.ref.kind}:${r.ref.value}`}
+                      onClick={() =>
+                        loadProfile(r.ref).catch(() =>
+                          flash("error", "Профиль больше не открывается")
+                        )
+                      }
+                      className="panel-field inline-flex min-h-11 shrink-0 snap-start items-center gap-2 px-3 text-sm font-semibold transition-colors hover:bg-white/20 active:scale-[0.985]"
+                    >
+                      {r.name}
+                      {r.className && (
+                        <span className="num text-xs font-normal text-panel-muted">
+                          {r.className}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                variant="panel"
+                className="min-h-11 flex-1"
+                onClick={openPicker}
+              >
+                <Users className="mr-2 h-4 w-4" /> Выбрать из класса
+              </Button>
+            </div>
+
+            <div className="mt-5 flex items-center gap-3">
+              <div className="h-px flex-1 bg-panel-line" />
+              <span className="eyebrow text-panel-muted">нет камеры — код с карточки</span>
+              <div className="h-px flex-1 bg-panel-line" />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={manualQr}
+                size="lg"
+                onChange={(e) => setManualQr(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitManualQr()}
+                placeholder="Код с карточки ученика"
+                aria-label="Код с карточки ученика"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="go"
+                className="flex-1 border-panel-line bg-white/12 text-panel-foreground shadow-none placeholder:text-panel-muted focus-visible:ring-2 focus-visible:ring-panel-foreground/50"
+              />
+              <Button
+                variant="panel"
+                disabled={!manualQr.trim()}
+                onClick={submitManualQr}
+              >
+                Открыть
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {scanningQr && (
+          <Card>
+            <CardContent className="p-4">
+              <Scanner
+                formats={QR_FORMATS}
+                onScan={handleQrScan}
+                onClose={() => setScanningQr(false)}
+                onError={(m) => {
+                  flash("error", m);
+                  setScanningQr(false);
+                }}
+              />
             </CardContent>
           </Card>
         )}
 
-        {scanningQr && (
-          <Scanner
-            formats={QR_FORMATS}
-            onScan={handleQrScan}
-            onClose={() => setScanningQr(false)}
-            onError={(m) => {
-              flash("error", m);
-              setScanningQr(false);
-            }}
-          />
-        )}
-
         {profile && (
           <>
-            <Card>
-              <CardHeader className="flex-row items-center justify-between space-y-0">
-                <div>
-                  <CardTitle className="text-lg">
-                    {profile.student.lastName} {profile.student.firstName}
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
+            {/* Профиль ученика = панель жеста: имя крупно, прогресс, две
+                кнопки действия и ручной ввод ISBN — всё на одном экране,
+                без прокрутки. */}
+            <section className="panel p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="eyebrow text-panel-muted">
                     {profile.student.class
                       ? `Класс ${profile.student.class.name}`
                       : "Без класса"}
                   </p>
+                  <h2 className="mt-1 truncate text-2xl font-extrabold leading-tight">
+                    {profile.student.lastName} {profile.student.firstName}
+                  </h2>
                 </div>
-                <Badge variant={issuedCount === profile.classBooks.length ? "success" : "secondary"}>
-                  {issuedCount} / {profile.classBooks.length} выдано
-                </Badge>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Прогресс-бар: сколько выдано, видно без чтения цифр */}
+                <span className="num shrink-0 rounded-full bg-white/15 px-3 py-1.5 text-sm font-bold">
+                  {issuedCount} / {profile.classBooks.length}
+                </span>
+              </div>
+
+              {/* Прогресс: сколько выдано — видно без чтения цифр.
+                  Track/fill — белый с прозрачностью: один fill, без градиентов. */}
+              <div
+                className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-white/20"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={profile.classBooks.length}
+                aria-valuenow={issuedCount}
+                aria-label="Выдано учебников"
+              >
                 <div
-                  className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={profile.classBooks.length}
-                  aria-valuenow={issuedCount}
-                  aria-label="Выдано учебников"
+                  className="h-full rounded-full bg-panel-foreground"
+                  style={{
+                    width: `${
+                      profile.classBooks.length
+                        ? (issuedCount / profile.classBooks.length) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="hero"
+                  className="min-h-12 flex-1 rounded-xl px-4 text-sm font-bold"
+                  disabled={busy}
+                  onClick={() => {
+                    setScanLog([]);
+                    setScanningBook(true);
+                  }}
                 >
-                  <div
-                    className="h-full rounded-full bg-primary transition-[width]"
-                    style={{
-                      width: `${
-                        profile.classBooks.length
-                          ? (issuedCount / profile.classBooks.length) * 100
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Отметьте учебник, когда отдаёте его ученику. Сняли галочку —
-                  вернули книгу.
-                </p>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button
-                    size="lg"
-                    className="h-11 flex-1"
-                    disabled={busy}
-                    onClick={() => {
-                      setScanLog([]);
-                      setScanningBook(true);
-                    }}
-                  >
-                    <ScanLine className="mr-2 h-5 w-5" /> Сканировать ISBN
-                  </Button>
-                  <Button
-                    size="lg"
-                    className="h-11 flex-1"
-                    disabled={busy || issuedCount === profile.classBooks.length}
-                    onClick={issueAll}
-                  >
-                    <CheckCheck className="mr-2 h-5 w-5" /> Выдать всё
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={manualIsbn}
-                    onChange={(e) => setManualIsbn(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleIsbn(manualIsbn)}
-                    placeholder="Ввести ISBN вручную"
-                    inputMode="numeric"
-                    className="h-11"
-                  />
-                  <Button
-                    variant="secondary"
-                    className="h-11 shrink-0"
-                    disabled={busy || !manualIsbn.trim()}
-                    onClick={() => handleIsbn(manualIsbn)}
-                  >
-                    Выдать
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  <ScanLine className="mr-2 h-5 w-5" /> Сканировать ISBN
+                </Button>
+                <Button
+                  variant="panel"
+                  className="min-h-12 flex-1 rounded-xl"
+                  disabled={busy || issuedCount === profile.classBooks.length}
+                  onClick={issueAll}
+                >
+                  <CheckCheck className="mr-2 h-5 w-5" /> Выдать всё
+                </Button>
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <Input
+                  size="lg"
+                  value={manualIsbn}
+                  onChange={(e) => setManualIsbn(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleIsbn(manualIsbn)}
+                  placeholder="ISBN вручную"
+                  aria-label="Ввести ISBN вручную"
+                  inputMode="numeric"
+                  enterKeyHint="go"
+                  className="flex-1 border-panel-line bg-white/12 font-mono text-panel-foreground shadow-none placeholder:text-panel-muted focus-visible:ring-2 focus-visible:ring-panel-foreground/50"
+                />
+                <Button
+                  variant="panel"
+                  disabled={busy || !manualIsbn.trim()}
+                  onClick={() => handleIsbn(manualIsbn)}
+                >
+                  Выдать
+                </Button>
+              </div>
+            </section>
 
             {scanningBook && (
               <>
-                <Scanner
-                  formats={BOOK_FORMATS}
-                  qrbox={{ width: 320, height: 140 }}
-                  continuous
-                  closeLabel="Готово"
-                  onScan={(text) => {
-                    handleIsbn(text);
-                  }}
-                  onClose={() => setScanningBook(false)}
-                  onError={(m) => {
-                    flash("error", m);
-                    setScanningBook(false);
-                  }}
-                />
+                <Card>
+                  <CardContent className="p-4">
+                    <Scanner
+                      formats={BOOK_FORMATS}
+                      qrbox={{ width: 320, height: 140 }}
+                      continuous
+                      closeLabel="Готово"
+                      onScan={(text) => {
+                        handleIsbn(text);
+                      }}
+                      onClose={() => setScanningBook(false)}
+                      onError={(m) => {
+                        flash("error", m);
+                        setScanningBook(false);
+                      }}
+                    />
+                  </CardContent>
+                </Card>
                 {/* Отсканированное — сразу видно под камерой (баннер
                     наверху мог уехать за экран). */}
                 {scanLog.length > 0 && (
@@ -762,13 +1048,13 @@ export default function IssueFlow() {
                           key={i}
                           className={
                             s.ok
-                              ? "text-sm text-success"
-                              : "text-sm text-destructive"
+                              ? "text-sm font-medium text-success"
+                              : "text-sm font-medium text-destructive"
                           }
                         >
                           {s.ok ? "✓" : "✗"} {s.title}
                           {s.note && (
-                            <span className="text-muted-foreground"> — {s.note}</span>
+                            <span className="font-normal text-muted-foreground"> — {s.note}</span>
                           )}
                         </p>
                       ))}
@@ -779,11 +1065,17 @@ export default function IssueFlow() {
             )}
 
             <Card>
-              <CardHeader>
-                <CardTitle>Чек-лист учебников</CardTitle>
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-base">Чек-лист учебников</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  тап по строке = выдать / вернуть
+                </p>
               </CardHeader>
-              <CardContent>
-                <ul className="divide-y divide-border">
+              <CardContent className="p-0 sm:p-0">
+                {/* .cv-rows: строки вне экрана не раскладываются и не
+                    рисуются — на списке из 30+ учебников и на «Журнале»
+                    это самый заметный выигрыш плавности на слабом телефоне. */}
+                <ul className="cv-rows divide-y divide-border">
                   {profile.classBooks.map((cb) => {
                     const active = activeLoanFor(cb.bookId);
                     const avail = profile.availability?.[cb.bookId];
@@ -795,11 +1087,13 @@ export default function IssueFlow() {
                         onClick={() =>
                           !busy && !pending.has(cb.bookId) && toggleBook(cb.bookId)
                         }
-                        className={
+                        className={cn(
+                          "flex min-h-16 items-center gap-3 px-4 py-3.5",
                           busy
-                            ? "flex items-center gap-3.5 py-3.5 opacity-60"
-                            : "flex cursor-pointer touch-manipulation select-none items-center gap-3.5 py-3.5 active:bg-accent/60"
-                        }
+                            ? "opacity-60"
+                            : "cursor-pointer touch-manipulation select-none active:bg-accent/60",
+                          active && "row-done"
+                        )}
                       >
                         <Checkbox
                           checked={Boolean(active)}
@@ -809,12 +1103,12 @@ export default function IssueFlow() {
                           onClick={(e) => e.stopPropagation()}
                           disabled={busy || pending.has(cb.bookId)}
                           aria-label={cb.book.title}
-                          className="h-6 w-6"
+                          className="h-7 w-7"
                         />
                         <div className="min-w-0 flex-1">
                           {/* div, а не p: внутри Badge (div) — div в <p>
                               даёт ошибку гидратации и лишний re-render */}
-                          <div className="truncate font-medium">
+                          <div className="font-semibold leading-snug">
                             {cb.book.title}
                             {showStock && (
                               <Badge
@@ -827,14 +1121,13 @@ export default function IssueFlow() {
                               </Badge>
                             )}
                           </div>
-                          <p className="truncate text-sm text-muted-foreground">
-                            {cb.book.subject} · ISBN {cb.book.isbn}
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground sm:text-sm">
+                            {cb.book.subject} · <span className="num">ISBN {cb.book.isbn}</span>
                           </p>
                         </div>
                         {active && (
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            выдана{" "}
-                            {new Date(active.issuedAt).toLocaleDateString("ru-RU")}
+                          <span className="num shrink-0 rounded-full bg-success/15 px-2 py-1 text-[11px] font-bold text-success">
+                            выдана {new Date(active.issuedAt).toLocaleDateString("ru-RU")}
                           </span>
                         )}
                       </li>
@@ -844,9 +1137,35 @@ export default function IssueFlow() {
               </CardContent>
             </Card>
 
-            <Button size="lg" variant="outline" onClick={reset} className="h-12 w-full text-base">
-              <UserPlus className="mr-2 h-5 w-5" /> Следующий ученик
-            </Button>
+            {/* Нижний «док»: главный жест всегда под большим пальцем, а не
+                в конце прокрутки. Sticky вместо fixed — на iOS при
+                открытой клавиатуре fixed-панель уходит под неё. */}
+            <div className="dock">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="pill"
+                  className="min-w-0 flex-1"
+                  onClick={reset}
+                  disabled={busy}
+                >
+                  <UserPlus className="mr-2 h-5 w-5" />
+                  Следующий ученик
+                </Button>
+                <Button
+                  size="pill"
+                  variant="outline"
+                  onClick={() => {
+                    setProfile(null);
+                    setManualIsbn("");
+                    setManualQr("");
+                    setScanLog([]);
+                    setStatus({ kind: "info", message: null });
+                  }}
+                >
+                  Готово
+                </Button>
+              </div>
+            </div>
           </>
         )}
     </div>

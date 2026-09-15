@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/prisma";
 import PrintToolbar from "../toolbar";
 import "../print.css";
+import { requireStaff } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,11 @@ export default async function PrintClassListPage({
 }: {
   searchParams: Promise<{ classId?: string }>;
 }) {
+  // Эти листы формируются прямым запросом к БД в серверном компоненте, без
+  // API-слоя — значит проверка сессии нужна здесь, иначе список класса,
+  // этикетки фонда, акт или журнал печатает любой, кто знает адрес.
+  await requireStaff("/print/class-list");
+
   const { classId } = await searchParams;
 
   const cls = classId

@@ -59,8 +59,11 @@ export default function DebtsView() {
   }, [classId, subject]);
 
   useEffect(() => {
-    fetch("/api/classes").then((r) => r.ok && r.json()).then(setClasses).catch(() => {});
-    fetch("/api/books").then((r) => r.ok && r.json()).then(setBooks).catch(() => {});
+    // r.ok ? … : [] — не r.ok && r.json(): на 401 (сессия истекла) это
+    // вернуло бы false в useState, и classes.map и classes.find упали бы на пустом
+    // экране. Список справочников пустой — отчёт всё равно читаем.
+    fetch("/api/classes").then((r) => (r.ok ? r.json() : [])).then(setClasses).catch(() => {});
+    fetch("/api/books").then((r) => (r.ok ? r.json() : [])).then(setBooks).catch(() => {});
     loadDebts().finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -128,7 +131,13 @@ export default function DebtsView() {
       return;
     try {
       const res = await fetch(`/api/loans/${loanId}`, { method: "PATCH" });
-      if (!res.ok) throw new Error("Не удалось пометить как утерянную");
+      if (!res.ok) {
+        // Причина с сервера важнее общей фразы: «выдача уже закрыта» (409 —
+        // возврат оформили, пока окно было открыто) выглядит как отказ
+        // программы, если показывать просто «не удалось».
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(j?.error ?? "Не удалось пометить как утерянную");
+      }
       flash("success", `«${title}» помечена утерянной.`);
       loadDebts();
     } catch (e) {
@@ -199,7 +208,7 @@ export default function DebtsView() {
           <select
             value={classId}
             onChange={(e) => setClassId(e.target.value)}
-            className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            className="h-11 rounded-lg border border-input bg-card px-2 text-base"
           >
             <option value="">Все классы</option>
             {classes.map((c) => (
@@ -211,7 +220,7 @@ export default function DebtsView() {
           <select
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            className="h-11 rounded-lg border border-input bg-card px-2 text-base"
           >
             <option value="">Все предметы</option>
             {subjects.map((s) => (
@@ -260,6 +269,10 @@ export default function DebtsView() {
         </Card>
       )}
 
+      {/* .cv-rows — строки вне экрана не рисуются: на «долгах» конца
+          года это сотни карточек, и на слабом телефоне список иначе
+          подлагивает при скролле. */}
+      <div className="cv-rows space-y-2">
       {byStudent.map(({ student, items }) => (
         <Card key={student.id}>
           <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
@@ -297,10 +310,9 @@ export default function DebtsView() {
               {items.map((d) => (
                 <li key={d.loanId} className="flex items-center gap-3 py-2.5">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{d.book.title}</p>
+                    <p className="truncate text-sm font-semibold">{d.book.title}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {d.book.subject} · выдана{" "}
-                      {new Date(d.issuedAt).toLocaleDateString("ru-RU")}
+                      {d.book.subject} · <span className="num">выдана {new Date(d.issuedAt).toLocaleDateString("ru-RU")}</span>
                     </p>
                   </div>
                   <Button
@@ -325,6 +337,7 @@ export default function DebtsView() {
           </CardContent>
         </Card>
       ))}
+      </div>
     </div>
   );
 }

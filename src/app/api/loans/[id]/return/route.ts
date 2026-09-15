@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { Temporal } from "@js-temporal/polyfill";
-import { db } from "@/lib/prisma";
-
 import { staffUser } from "@/lib/auth";
+import { closeLoan } from "@/lib/loan-writes";
 
 // Возврат книги.
 export async function PUT(
@@ -15,23 +13,15 @@ export async function PUT(
 
   const { id } = await params;
 
-  const current = await db.orm.public.Loan.where({ id }).first();
-  if (!current) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  if (current.status !== "ISSUED") {
+  // Закрытие выдачи идёт через общий helper (см. src/lib/loan-writes.ts):
+  // статус перечитывается внутри транзакции, поэтому «вернули оба» —
+  // исключено, а второй ответ честно получает already_closed.
+  const res = await closeLoan({ loanId: id, status: "RETURNED" });
+  if (!res.ok) {
     return NextResponse.json(
-      { error: "Книга уже закрыта (возвращена или утеряна)" },
-      { status: 409 }
+      { error: res.error, ...(res.code === "not_found" ? {} : { code: res.code }) },
+      { status: res.code === "not_found" ? 404 : 409 }
     );
   }
-
-  const loan = await db.orm.public.Loan
-    .where({ id })
-    .update({
-      status: "RETURNED",
-      returnedAt: Temporal.Now.instant(),
-    });
-
-  return NextResponse.json(loan);
+  return NextResponse.json(res.loan);
 }

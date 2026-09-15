@@ -3,6 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { db } from "@/lib/prisma";
 import PrintToolbar from "../toolbar";
 import "../print.css";
+import { requireStaff } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,12 @@ export default async function PrintLossActPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
+  // Эти листы формируются прямым запросом к БД в серверном компоненте, без
+  // API-слоя — значит проверка сессии нужна здесь, иначе список класса,
+  // этикетки фонда, акт или журнал печатает любой, кто знает адрес.
+  await requireStaff("/print/loss-act");
+
+
   const { from, to } = await searchParams;
 
   const loans = await db.orm.public.Loan

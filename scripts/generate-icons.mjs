@@ -1,5 +1,12 @@
-// Генерация PWA-иконок (192/512) без внешних зависимостей.
-// Рисуем синее «свитое» поле с белой книгой и строкой подписи.
+// Генерация PWA-иконок без внешних зависимостей (чистый Node):
+//   icon-192/512.png        — обычные (со скруглением углов)
+//   icon-maskable-192/512   — Android Adaptive Icons: сплошной фон, весь
+//                             смысл в «безопасной зоне» (центральный круг
+//                             66% диаметра) — система сама вырежет круг/
+//                             квадрат/каплю, иначе край книги срежет.
+//   apple-touch-icon.png    — 180×180, без прозрачности (iOS не скругляет
+//                             сам PNG, но и не любит прозрачный фон).
+// Палитра совпадает с --primary в globals.css (#1f5ed9).
 import { deflateSync } from "node:zlib";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -53,11 +60,11 @@ function encodePng(width, height, rgba) {
 }
 
 // --- Рисование иконки ---
-function makeIcon(size) {
+function makeIcon(size, rounded = true) {
   const px = Buffer.alloc(size * size * 4);
   const S = size / 64; // рисуем в системе 64x64 и масштабируем
-  const bg = [37, 99, 235]; // blue-600
-  const bgDark = [29, 78, 216]; // blue-700
+  const bg = [31, 94, 217]; // --primary #1f5ed9
+  const bgDark = [14, 73, 188]; // темнее по диагонали
   const white = [255, 255, 255];
 
   const put = (x, y, [r, g, b], a = 255) => {
@@ -91,16 +98,18 @@ function makeIcon(size) {
       }
   };
 
-  // Фон с закруглением по углам
-  const rad = Math.round(14 * S);
+  // Фон: у maskable-иконок углы НЕ скругляем (Android сам вырежет форму),
+  // у обычных — мягкое скругление, как у иконки в UI.
+  const rad = rounded ? Math.round(14 * S) : 0;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let inside = true;
       const inCorner =
-        (x < rad && y < rad) ||
+        rad > 0 &&
+        ((x < rad && y < rad) ||
         (x >= size - rad && y < rad) ||
         (x < rad && y >= size - rad) ||
-        (x >= size - rad && y >= size - rad);
+        (x >= size - rad && y >= size - rad));
       if (inCorner) {
         const ccx = x < rad ? rad : size - 1 - rad;
         const ccy = y < rad ? rad : size - 1 - rad;
@@ -129,15 +138,25 @@ function makeIcon(size) {
   // Корешок
   fillRect(16, 14, 20, 46, bgDark);
   // Страницы (линии)
-  for (let i = 0; i < 3; i++) fillRect(25, 20 + i * 6, 42, 21.5 + i * 6, [219, 234, 254]);
+  for (let i = 0; i < 3; i++) fillRect(25, 20 + i * 6, 42, 21.5 + i * 6, [221, 232, 253]);
 
   return px;
 }
 
-for (const size of [192, 512]) {
-  const px = makeIcon(size);
-  const png = encodePng(size, size, px);
-  const file = join(outDir, `icon-${size}.png`);
+const targets = [
+  { file: "icon-192.png", size: 192, rounded: true },
+  { file: "icon-512.png", size: 512, rounded: true },
+  { file: "icon-maskable-192.png", size: 192, rounded: false },
+  { file: "icon-maskable-512.png", size: 512, rounded: false },
+  // 180×180 — канонический размер apple-touch-icon для «домашнего» экрана
+  // iPhone/iPad (167 для iPad Pro, 152 для iPad — берутся тот же файл).
+  { file: "apple-touch-icon.png", size: 180, rounded: false },
+];
+
+for (const t of targets) {
+  const px = makeIcon(t.size, t.rounded);
+  const png = encodePng(t.size, t.size, px);
+  const file = join(outDir, t.file);
   writeFileSync(file, png);
   console.log(`✓ ${file} (${png.length} bytes)`);
 }

@@ -50,6 +50,16 @@ export function BookCover({
     <img
       src={coverSrc(bookId, version)}
       alt={title ? `Обложка: ${title}` : ""}
+      // Обложки — единственные картинки в приложении: грузим лениво и
+      // в низком приоритете, чтобы список класса/каталог открывался
+      // по тексту, а не ждал decoding тысячепиксельных JPEG.
+      loading="lazy"
+      decoding="async"
+      fetchPriority="low"
+      // размеры заданы классами (box) — width/height атрибутами дублируем,
+      // чтобы до загрузки картинки не было сдвига раскладки (CLS)
+      width={size === "lg" ? 96 : size === "md" ? 44 : 32}
+      height={size === "lg" ? 144 : size === "md" ? 64 : 48}
       onError={() => setOk(false)}
       className={cn(
         "shrink-0 rounded object-cover bg-muted",
@@ -60,15 +70,21 @@ export function BookCover({
   );
 }
 
-/** Загрузка обложки: файл с телефона или по ISBN. */
+/**
+ * Загрузка обложки: файл с телефона или по ISBN.
+ * `showPreview={false}` — когда превью уже нарисовано снаружи (карточка
+ * учебника в каталоге), чтобы не показывать две одинаковые обложки.
+ */
 export function CoverUploader({
   bookId,
   isbn,
   onDone,
+  showPreview = true,
 }: {
   bookId: string;
   isbn?: string;
   onDone?: () => void;
+  showPreview?: boolean;
 }) {
   const [v, setV] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -106,7 +122,7 @@ export function CoverUploader({
 
   return (
     <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
-      <BookCover bookId={bookId} size="lg" version={v} />
+      {showPreview && <BookCover bookId={bookId} size="lg" version={v} />}
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-medium">
           <ImagePlus className="h-4 w-4" />

@@ -142,7 +142,7 @@ export default function ReportView() {
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
-                className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+                className="h-11 rounded-lg border border-input bg-card px-2 text-base"
               />
             </div>
             <div className="space-y-1">
@@ -151,7 +151,7 @@ export default function ReportView() {
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+                className="h-11 rounded-lg border border-input bg-card px-2 text-base"
               />
             </div>
             <div className="flex gap-1">
@@ -170,7 +170,7 @@ export default function ReportView() {
                 href={printHref}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-input bg-card px-3 text-base font-medium text-foreground transition-colors hover:bg-accent"
               >
                 <Printer className="h-4 w-4" /> Печать
               </a>

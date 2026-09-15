@@ -16,6 +16,14 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Только персонал: обложки рисуются в каталоге и в карточке книги
+  // (ученикам они не показываются), а ответ и так помечен `private`.
+  // `<img src>` отправляет cookie того же происхождения, так что картинка
+  // у вошедшего работает как работала.
+  if (!(await staffUser())) {
+    return new NextResponse(null, { status: 401 });
+  }
+
   const { id } = await params;
   const found = await findCover(id);
   if (!found) {

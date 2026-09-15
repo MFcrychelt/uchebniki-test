@@ -102,7 +102,7 @@ function InviteQrInner() {
                 const qs = q.toString();
                 window.history.replaceState(null, "", qs ? `/print/invite-qr?${qs}` : "/print/invite-qr");
               }}
-              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+              className="h-11 rounded-lg border border-input bg-card px-2 text-base"
             >
               <option value="">Все классы</option>
               {classes.map((c) => (
@@ -186,7 +186,7 @@ export default function InviteQrPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center">
+        <main className="flex min-h-dvh items-center justify-center">
           <p className="text-muted-foreground">Загрузка…</p>
         </main>
       }
