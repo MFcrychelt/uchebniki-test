@@ -154,7 +154,12 @@ export async function requireStaff(from?: string): Promise<SessionUser> {
   if (!user || user.role === "STUDENT") {
     redirect(from ? `/login?from=${from}` : "/login");
   }
-  return user;
+  // Администраторов пускаем только в /admin — иначе они попадают
+  // в кабинет библиотекаря и теряются (баг: from=/librarian по умолчанию).
+  if (user!.role === "ADMIN") {
+    redirect("/admin");
+  }
+  return user!;
 }
 
 /**
